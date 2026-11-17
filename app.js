@@ -5,11 +5,51 @@
 
 const TYPES = [
   'নতুন বাড়ির মালিক',
-  'ইলেকট্রিশিয়ান',
+  'কারিগর',
   'ঠিকাদার',
   'পাইকারি দোকানদার',
   'সাধারণ ক্রেতা',
 ];
+const T_HOUSE = TYPES[0], T_KARIGOR = TYPES[1], T_THIKADAR = TYPES[2], T_PAIKAR = TYPES[3];
+/* কারিগর ও ঠিকাদার — দুজনই কাজ এনে দেয়, তাই এক নিয়মে চলে */
+const isChannel = t => t === T_KARIGOR || t === T_THIKADAR;
+
+/* কারিগরের ধরন — একজন একাধিক কাজ করতে পারে */
+const TRADES = [
+  'ইলেকট্রিক মিস্ত্রি',
+  'রাজমিস্ত্রি',
+  'কাঠমিস্ত্রি / ফার্নিচার',
+  'রড মিস্ত্রি',
+  'প্লাম্বার / স্যানিটারি',
+  'টাইলস মিস্ত্রি',
+  'রং মিস্ত্রি',
+  'থাই / অ্যালুমিনিয়াম',
+  'গ্রিল / ওয়েল্ডিং',
+  'পাম্প ও মটর মিস্ত্রি',
+  'ফ্রিজ-এসি মেকানিক',
+  'অন্যান্য',
+];
+
+/* সম্পর্কের তাপ — কারিগরের জন্য তাগিদের বদলে এটাই */
+function heat(c){
+  const broughtAt = (c.events || []).filter(e => e.type === 'ref').map(e => e.t).sort().pop();
+  // কাজ আনেনি এমন হলে শুধু শেষ যোগাযোগই ধরা হয় — নইলে ভবিষ্যতের তারিখ
+  // ঋণাত্মক দিন দিয়ে ভুল করে 'সক্রিয়' দেখাত
+  const bd = broughtAt ? daysSince(broughtAt) : Infinity;
+  const d  = Math.min(bd, daysSince(c.lastContact || c.createdAt));
+  if (d <= 30)  return { k: 'ok',   t: 'সক্রিয়',          d };
+  if (d <= 90)  return { k: 'cool', t: 'ভালো',            d };
+  if (d <= 180) return { k: 'warm', t: 'ঠান্ডা হয়ে যাচ্ছে', d };
+  return { k: 'bad', t: 'হারিয়ে গেছে', d };
+}
+
+/* এই কারিগরের মাধ্যমে আসা কাস্টমার */
+function broughtBy(id){ return S.list.filter(x => x.refBy === id); }
+function broughtValue(id){ return broughtBy(id).reduce((n, x) => n + salesTotal(x), 0); }
+function channelList(){
+  return S.list.filter(c => isChannel(c.type))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'bn'));
+}
 
 /* construction stage → how close the building is to its wiring work */
 const STAGES = [
@@ -102,6 +142,7 @@ const EVENT_LABEL = {
   wa: 'WhatsApp-এ কথা', tea: 'দোকানে এসেছেন', sale: 'বিক্রি', won: 'কাজ পেয়েছি',
   lost: 'কাজ হাতছাড়া', note: 'নোট', stage: 'অবস্থা বদল', pin: 'ম্যাপে পিন',
   invite: 'চা-কফির দাওয়াত দেওয়া হয়েছে', promise: 'আসার তারিখ দিয়েছেন',
+  ref: 'কাজ এনে দিয়েছেন',
   noshow: 'আসেননি', reschedule: 'তারিখ পিছিয়েছে',
 };
 
@@ -231,9 +272,14 @@ function score(c){
       + weightOf(NEED, String(c.needDays || ''), 8)
       + weightOf(STAGES, c.stage, 8)
       + stale;
+  } else if (isChannel(c.type)){
+    // কাজ এনে দেয় যারা — কত এনেছে আর কতদিন চুপ, সেটাই তাগিদ
+    const n = broughtBy(c.id).length;
+    const h = heat(c);
+    const quiet = { ok: 0, cool: 14, warm: 32, bad: 24 }[h.k];
+    s = (c.type === T_THIKADAR ? 24 : 26) + quiet + Math.min(20, n * 4);
   } else {
-    // মিস্ত্রি, ঠিকাদার, পাইকার — সম্পর্ক ধরে রাখার তাগিদ
-    const base = { 'ইলেকট্রিশিয়ান': 26, 'ঠিকাদার': 24, 'পাইকারি দোকানদার': 20 };
+    const base = { 'পাইকারি দোকানদার': 20 };
     s = (base[c.type] || 12) + stale * 1.6;
   }
 
@@ -447,13 +493,23 @@ function personRow(c, s){
 
   const bits = [];
   const pl = placeText(c); if (pl) bits.push(pl);
-  if (c.type === 'নতুন বাড়ির মালিক'){
+  if (c.type === T_HOUSE){
     if (c.floors) bits.push(bn(c.floors) + ' তলা');
     if (c.elecStatus) bits.push(c.elecStatus);
+  } else if (isChannel(c.type)){
+    const tr = (c.trades || []).slice(0, 2).join(', ');
+    bits.push(tr || c.type);
+    if (c.team) bits.push(bn(c.team) + ' জনের দল');
   } else if (c.type) bits.push(c.type);
 
   let chip = '';
-  if (c.status === 'won')      chip = '<span class="chip ok">পেয়েছি</span>';
+  if (isChannel(c.type)){
+    const h = heat(c);
+    const n = broughtBy(c.id).length;
+    chip = '<span class="chip ' + h.k + '">' + h.t + '</span>' +
+           (n ? '<span class="chip gold">' + bn(n) + ' কাজ</span>' : '');
+  }
+  else if (c.status === 'won')  chip = '<span class="chip ok">পেয়েছি</span>';
   else if (c.status === 'lost') chip = '<span class="chip bad">হাতছাড়া</span>';
   else chip = '<span class="chip ' + b.k + '">' + b.t + '</span>';
 
@@ -589,7 +645,7 @@ function viewFollow(){
 const FILTERS = [
   ['all', 'সব'],
   ['নতুন বাড়ির মালিক', 'নির্মাণাধীন বাড়ি'],
-  ['ইলেকট্রিশিয়ান', 'ইলেকট্রিশিয়ান'],
+  ['কারিগর', 'কারিগর'],
   ['ঠিকাদার', 'ঠিকাদার'],
   ['পাইকারি দোকানদার', 'পাইকার'],
   ['won', 'পেয়েছি'],
@@ -966,6 +1022,33 @@ function formHTML(c){
   '</div>' +
 
   /* ---- construction block ---- */
+  /* ─── কারিগর ও ঠিকাদারের নিজস্ব ঘর ─── */
+  '<div id="kblock"' + (isChannel(v.type || TYPES[0]) ? '' : ' hidden') + '>' +
+    '<div class="field"><span>কী কী কাজ করেন</span>' +
+    '<div class="tradegrid">' + TRADES.map((t, i) =>
+      '<label class="tradechip"><input type="checkbox" class="f_trade" value="' + esc(t) + '"' +
+      ((v.trades || []).includes(t) ? ' checked' : '') + '><span>' + esc(t) + '</span></label>').join('') +
+    '</div><span class="hint">একাধিক বাছাই করা যায়।</span></div>' +
+
+    '<div class="grid2">' +
+    '<label class="field"><span>কত বছর ধরে কাজ করছেন</span>' +
+    '<input id="f_exp" type="number" inputmode="numeric" min="0" max="70" value="' + esc(v.exp || '') + '" placeholder="যেমন ১২"></label>' +
+    '<label class="field"><span>সাথে কতজন কাজ করে</span>' +
+    '<input id="f_team" type="number" inputmode="numeric" min="0" max="200" value="' + esc(v.team || '') + '" placeholder="যেমন ৪"></label>' +
+    '</div>' +
+
+    '<label class="field"><span>কোন কোন এলাকায় কাজ করেন</span>' +
+    '<input id="f_areas" value="' + esc(v.areas || '') + '" placeholder="বেতবাড়ী, সলপ, পঞ্চক্রোশী">' +
+    '<span class="hint">কমা দিয়ে একাধিক লিখুন। কোন এলাকায় আপনার হাত আছে, রিপোর্টে দেখাবে।</span></label>' +
+
+    '<label class="field"><span>এখন কোন কোন বাড়িতে কাজ চলছে</span>' +
+    '<textarea id="f_sites" rows="2" placeholder="যেমন: বেতবাড়ী মন্ডল বাড়ি ৩ তলা, সলপ বাজারের পাশে ২ তলা">' + esc(v.sites || '') + '</textarea>' +
+    '<span class="hint">এগুলোই নতুন কাস্টমারের খবর। পরে আলাদা করে তুলে রাখবেন।</span></label>' +
+
+    '<label class="field"><span>কী সুবিধা দেওয়া হচ্ছে</span>' +
+    '<input id="f_perk" value="' + esc(v.perk || '') + '" placeholder="কারিগর দাম / বাকির সুবিধা / কমিশন"></label>' +
+  '</div>' +
+
   '<div id="cblock"' + ((v.type || TYPES[0]) !== TYPES[0] ? ' hidden' : '') + '>' +
     '<div class="grid2">' +
     '<label class="field"><span>কয় তলা</span><select id="f_floors">' +
@@ -979,6 +1062,13 @@ function formHTML(c){
     '<label class="field"><span>নির্মাণের অবস্থা</span><select id="f_stage">' + opt(STAGES, v.stage || STAGES[0][0]) + '</select></label>' +
     '<label class="field"><span>ইলেকট্রিক কাজের অবস্থা</span><select id="f_elec">' + opt(ELEC, v.elecStatus || ELEC[0][0]) + '</select></label>' +
   '</div>' +
+
+  '<div id="refblock"' + (isChannel(v.type || TYPES[0]) ? ' hidden' : '') + '>' +
+  '<label class="field"><span>কে পরিচয় করিয়ে দিয়েছে</span><select id="f_refby">' +
+    '<option value="">কেউ না / নিজে এসেছে</option>' +
+    channelList().map(k => '<option value="' + esc(k.id) + '"' + (v.refBy === k.id ? ' selected' : '') + '>' +
+      esc(k.name) + ' — ' + esc((k.trades && k.trades[0]) || k.type) + '</option>').join('') +
+  '</select><span class="hint">কারিগর বা ঠিকাদার এনে থাকলে বেছে দিন। কে কত কাজ এনেছে সেটার হিসাব এখান থেকেই হয়।</span></label></div>' +
 
   '<div class="grid2">' +
   '<label class="field"><span>এখন কার কাছ থেকে মাল নেয়</span>' +
@@ -1034,9 +1124,13 @@ function openForm(c){
     '<button class="btn gold block" id="saveC">সংরক্ষণ করুন</button>');
 
   const typeSel = $('#f_type');
-  typeSel.addEventListener('change', () => {
-    $('#cblock').hidden = typeSel.value !== TYPES[0];
-  });
+  const syncBlocks = () => {
+    $('#cblock').hidden   = typeSel.value !== TYPES[0];
+    $('#kblock').hidden   = !isChannel(typeSel.value);
+    $('#refblock').hidden = isChannel(typeSel.value);
+  };
+  typeSel.addEventListener('change', syncBlocks);
+  syncBlocks();
 
   const unionSel = $('#f_union');
   const setPick = (key, val) => {
@@ -1410,6 +1504,23 @@ async function saveForm(c){
   if (!rec.by) rec.by = (S.me && S.me.name) || (S.settings.myName || '').trim();
   rec.notes = $('#f_notes').value.trim();
 
+  if (isChannel(type)){
+    rec.trades = Array.from($('#sheet').querySelectorAll('.f_trade:checked')).map(x => x.value);
+    rec.exp   = $('#f_exp').value;
+    rec.team  = $('#f_team').value;
+    rec.areas = $('#f_areas').value.trim();
+    rec.sites = $('#f_sites').value.trim();
+    rec.perk  = $('#f_perk').value.trim();
+    rec.refBy = '';
+  } else {
+    const nref = $('#f_refby').value;
+    if (nref && nref !== rec.refBy){
+      const k = byId(nref);
+      if (k){ addEvent(k, 'ref', rec.name); saveRec(k); }
+    }
+    rec.refBy = nref;
+  }
+
   if (type === TYPES[0]){
     rec.floors = $('#f_floors').value;
     rec.needDays = $('#f_need').value;
@@ -1461,8 +1572,10 @@ function openDetail(id){
     '<div class="drow">' +
       (c.status === 'won' ? '<span class="chip ok">কাজ পেয়েছি</span>'
        : c.status === 'lost' ? '<span class="chip bad">হাতছাড়া' + (c.lostTo ? ' — ' + esc(c.lostTo) : '') + '</span>'
-       : '<button class="chip ' + b.k + '" id="whyScore" style="border:0;cursor:pointer">' +
-         b.t + ' · তাগিদ ' + bn(sc) + ' ⓘ</button>') +
+       : isChannel(c.type)
+         ? '<span class="chip ' + heat(c).k + '">' + heat(c).t + '</span>'
+         : '<button class="chip ' + b.k + '" id="whyScore" style="border:0;cursor:pointer">' +
+           b.t + ' · তাগিদ ' + bn(sc) + ' ⓘ</button>') +
       (km != null ? '<span class="chip gold">দোকান থেকে ' + distText(km) + '</span>' : '<span class="chip idle">পিন নেই</span>') +
     '</div></div>';
 
@@ -1481,6 +1594,12 @@ function openDetail(id){
     kv('এলাকা', esc(placeText(c, true))) +
     kv('কিসের পাশে', esc(c.landmark)) +
     kv('বাড়ি চেনার মতো', esc(c.address)) +
+    kv('কী কী কাজ করেন', (c.trades || []).join(', ')) +
+    kv('অভিজ্ঞতা', c.exp ? bn(c.exp) + ' বছর' : '') +
+    kv('দলের লোক', c.team ? bn(c.team) + ' জন' : '') +
+    kv('কাজের এলাকা', esc(c.areas)) +
+    kv('এখন কোথায় কাজ চলছে', esc(c.sites)) +
+    kv('কী সুবিধা দেওয়া হয়', esc(c.perk)) +
     kv('কয় তলা', c.floors ? bn(c.floors) + ' তলা' : '') +
     kv('নির্মাণের অবস্থা', esc(c.stage)) +
     kv('ইলেকট্রিক কাজ', esc(c.elecStatus)) +
@@ -1489,6 +1608,9 @@ function openDetail(id){
     kv('চা-কফির দাওয়াতের তারিখ', c.teaDate ? banglaDate(c.teaDate) + (c.teaDone ? ' (এসেছেন)' : '') : '') +
     kv('পরের যোগাযোগ', c.nextDate ? banglaDate(c.nextDate) : '') +
     kv('শেষ যোগাযোগ', agoText(c.lastContact || c.createdAt)) +
+    (c.refBy && byId(c.refBy)
+      ? kv('পরিচয় করিয়েছে', '<button class="linkbtn" data-open="' + esc(c.refBy) + '">' +
+          esc(byId(c.refBy).name) + ' ▸</button>') : '') +
     kv('কে তুলেছে', c.by ? esc(c.by) + ' <span class="chip cool">' + roleLabel() + '</span>' : '') +
     kv('কবে তোলা হয়েছে', c.createdAt ? banglaDate(c.createdAt) : '') +
     kv('নোট', esc(c.notes)) +
@@ -1509,6 +1631,18 @@ function openDetail(id){
     '<button class="btn sec" data-log="visit">মাঠে দেখা হলো</button>' +
     '<button class="btn sec" data-log="tea">দোকানে এসেছেন</button></div>';
 
+  if (isChannel(c.type)){
+    const got = broughtBy(c.id);
+    const val = broughtValue(c.id);
+    body += '<div class="sec-h" style="margin-top:16px"><h2>এর মাধ্যমে এসেছে</h2>' +
+      '<span class="more num">' + bn(got.length) + ' জন' + (val ? ' · ' + money(val) : '') + '</span></div>';
+    body += got.length
+      ? '<div class="card pad0"><div class="plist">' + got.map(x => personRow(x)).join('') + '</div></div>'
+      : '<div class="card"><div class="empty"><strong>এখনো কাউকে আনেননি</strong>' +
+        'নতুন কাস্টমার তোলার সময় “কে পরিচয় করিয়ে দিয়েছে” ঘরে ইনার নাম বাছলে এখানে জমা হবে।</div></div>';
+    body += '<button class="btn gold block" id="kAddRef" style="margin-top:9px">＋ এর আনা নতুন কাস্টমার</button>';
+  }
+
   const sl = salesOf(c);
   if (c.status === 'won'){
     body += '<div class="sec-h" style="margin-top:16px"><h2>বিক্রির খাতা</h2>' +
@@ -1517,7 +1651,7 @@ function openDetail(id){
             '<button class="btn gold block" id="mMore" style="margin-top:9px">＋ আবার মাল নিয়েছেন</button>';
   } else if (c.status === 'lost'){
     body += '<button class="btn sec block" id="mReopen">আবার চালু করুন</button>';
-  } else {
+  } else if (!isChannel(c.type)){
     body += '<div class="btnrow"><button class="btn gold" id="mWon">কাজ পেয়েছি</button>' +
             '<button class="btn sec" id="mLost">হাতছাড়া হয়েছে</button></div>';
   }
@@ -1551,6 +1685,11 @@ function openDetail(id){
     btn.addEventListener('click', () => logAction(c, btn.dataset.log)));
 
   if (c.status === 'won') paintSales(c);
+  const kar = $('#kAddRef');
+  if (kar) kar.addEventListener('click', () => {
+    closeSheet();
+    setTimeout(() => { openForm(null); const r = $('#f_refby'); if (r) r.value = c.id; }, 80);
+  });
   const won = $('#mWon'), lost = $('#mLost'), re = $('#mReopen'), more = $('#mMore');
   if (won)  won.addEventListener('click', () => addSale(c, true));
   if (more) more.addEventListener('click', () => addSale(c, false));
@@ -1590,11 +1729,16 @@ function explainScore(c){
     parts.push(['ইলেকট্রিক কাজের অবস্থা', c.elecStatus || '—', weightOf(ELEC, c.elecStatus, 22)]);
     parts.push(['কত দিনে মাল লাগবে', NEED_LABEL[String(c.needDays || '')] || 'জানা নেই', weightOf(NEED, String(c.needDays || ''), 8)]);
     parts.push(['নির্মাণ কতদূর', c.stage || '—', weightOf(STAGES, c.stage, 8)]);
+  } else if (isChannel(c.type)){
+    const h = heat(c), n = broughtBy(c.id).length;
+    parts.push(['সম্পর্কের ভিত্তি', c.type, c.type === T_THIKADAR ? 24 : 26]);
+    parts.push(['সম্পর্কের তাপ', h.t, { ok: 0, cool: 14, warm: 32, bad: 24 }[h.k]]);
+    if (n) parts.push(['কতগুলো কাজ এনেছে', bn(n) + ' টি', Math.min(20, n * 4)]);
   } else {
-    const base = { 'ইলেকট্রিশিয়ান': 26, 'ঠিকাদার': 24, 'পাইকারি দোকানদার': 20 };
-    parts.push(['সম্পর্কের গুরুত্ব', c.type || '—', base[c.type] || 12]);
+    parts.push(['সম্পর্কের গুরুত্ব', c.type || '—', c.type === T_PAIKAR ? 20 : 12]);
   }
-  parts.push(['কতদিন কথা হয়নি', agoText(last), Math.round(c.type === 'নতুন বাড়ির মালিক' ? stale : stale * 1.6)]);
+  if (!isChannel(c.type))
+    parts.push(['কতদিন কথা হয়নি', agoText(last), Math.round(c.type === T_HOUSE ? stale : stale * 1.6)]);
   if (dueDate(c) && dueDate(c) <= todayISO())
     parts.push(['তারিখ পেরিয়ে গেছে / আজকের দিন', banglaDate(dueDate(c)), 25]);
   if (c.teaStatus === 'promised') parts.push(['আসবেন বলে কথা দিয়েছেন', '', 10]);

@@ -1,8 +1,8 @@
 /* জারা মাঠ — app shell cache. Bump CACHE on every deploy. */
-const CACHE = 'jara-maath-v9';
+const CACHE = 'jara-maath-v11';
 const SHELL = [
-  './', './index.html', './app.css?v=9', './app.js?v=9', './store.js?v=9',
-  './villages.js?v=9', './manifest.json?v=9', './icons/icon-192.png', './icons/icon-512.png'
+  './', './index.html', './app.css?v=11', './app.js?v=11', './store.js?v=11',
+  './villages.js?v=11', './manifest.json?v=11', './icons/icon-192.png', './icons/icon-512.png'
 ];
 
 self.addEventListener('install', e => {
