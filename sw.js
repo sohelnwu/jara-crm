@@ -1,5 +1,5 @@
 /* জারা মাঠ — app shell cache. Bump CACHE on every deploy. */
-const CACHE = 'jara-maath-v4';
+const CACHE = 'jara-maath-v5';
 const SHELL = [
   './', './index.html', './app.css', './app.js', './store.js',
   './manifest.json', './icons/icon-192.png', './icons/icon-512.png'

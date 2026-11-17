@@ -239,6 +239,11 @@ const S = {
 async function load(){
   S.list     = await Store.all();
   S.settings = await Store.getSettings();
+  // ক্লাউডে না পৌঁছালেও যেন শেষ অবস্থাটা হাতে থাকে
+  if (Store.mode === 'cloud'){
+    try{ localStorage.setItem('jara.snapshot',
+      JSON.stringify({ at: new Date().toISOString(), customers: S.list })); }catch(e){}
+  }
 }
 async function saveRec(rec){
   try{
@@ -648,6 +653,23 @@ function inLast(iso, days){
   return d >= plusDays(-(days - 1)) && d <= todayISO();
 }
 
+function staffPeriod(days){
+  const m = {};
+  const row = n => m[n] || (m[n] = { fresh: 0, touch: 0, tea: 0, won: 0, amt: 0 });
+  S.list.forEach(c => {
+    const who = (c.by || '').trim() || 'নাম লেখা নেই';
+    if (inLast(c.createdAt, days)) row(who).fresh++;
+    (c.events || []).forEach(e => {
+      if (!inLast(e.t, days)) return;
+      if (['visit','call','wa'].includes(e.type)) row(who).touch++;
+      if (e.type === 'tea') row(who).tea++;
+      if (e.type === 'won'){ row(who).won++; row(who).amt += Number(c.saleAmount) || 0; }
+    });
+  });
+  return Object.entries(m).sort((a, b) =>
+    (b[1].won - a[1].won) || (b[1].tea - a[1].tea) || (b[1].fresh - a[1].fresh));
+}
+
 function periodStats(days){
   const s = { fresh: 0, touch: 0, tea: 0, won: 0, amount: 0, places: new Set() };
   S.list.forEach(c => {
@@ -749,7 +771,18 @@ function viewReport(){
         '<div class="bar"><i style="width:' + (invited ? n / invited * 100 : 0) + '%"></i></div></div>';
     }).join('') + (invited ? '' : '<div class="empty">এখনো কাউকে দাওয়াত দেওয়া হয়নি</div>') + '</div>';
 
-  /* কে কী এনেছে */
+  /* কে কী এনেছে — বাছাই করা মেয়াদে */
+  const sp = staffPeriod(days);
+  const plabel = (PERIODS.find(x => x[0] === pk) || PERIODS[1])[1];
+  h += '<div class="sec-h"><h2>কর্মীর কাজ — ' + plabel + '</h2></div><div class="card">' +
+    (sp.length ? '<div class="tablewrap"><table><thead><tr><th>নাম</th><th>নতুন</th><th>যোগাযোগ</th><th>দোকানে</th><th>বিক্রি</th></tr></thead><tbody>' +
+      sp.map(([n, d]) => '<tr><td><b>' + esc(n) + '</b></td><td class="num">' + bn(d.fresh) +
+        '</td><td class="num">' + bn(d.touch) + '</td><td class="num">' + bn(d.tea) +
+        '</td><td class="num">' + (d.amt ? money(d.amt) : bn(d.won)) + '</td></tr>').join('') +
+      '</tbody></table></div>'
+      : '<div class="empty">এই সময়ে কারও কোনো কাজ লেখা হয়নি</div>') + '</div>';
+
+  /* সব সময় মিলিয়ে */
   const byStaff = {};
   all.forEach(c => {
     const n = (c.by || '').trim() || 'নাম লেখা নেই';
@@ -759,7 +792,7 @@ function viewReport(){
     if (c.status === 'won'){ byStaff[n].won++; byStaff[n].amt += Number(c.saleAmount) || 0; }
   });
   const ss = Object.entries(byStaff).sort((a, b) => b[1].n - a[1].n);
-  h += '<div class="sec-h"><h2>কে কতটা এনেছে</h2><span class="more">MDE অনুযায়ী</span></div><div class="card">' +
+  h += '<div class="sec-h"><h2>কে কতটা এনেছে</h2><span class="more">শুরু থেকে এ পর্যন্ত</span></div><div class="card">' +
     (ss.length ? ss.map(([n, d]) =>
       '<div class="rrow"><span>' + esc(n) + '</span><span class="rn">' +
       bn(d.n) + ' জন · ' + bn(d.tea) + ' দোকানে · ' + bn(d.won) + ' বিক্রি' +
@@ -1498,8 +1531,12 @@ function openSettings(){
     '<div class="sec-h"><h2>ডেটা</h2></div>' +
     '<div class="btnrow" style="margin:9px 0"><button class="btn sec" id="s_xls">Excel ব্যাকআপ</button>' +
     '<button class="btn sec" id="s_json">ফাইল ব্যাকআপ</button></div>' +
-    '<label class="btn sec block" style="margin-bottom:9px">ফাইল থেকে ফেরান' +
-    '<input type="file" id="s_restore" accept=".json" hidden></label>' +
+    '<div class="btnrow" style="margin-bottom:9px">' +
+    '<label class="btn sec" style="cursor:pointer">ফাইল থেকে ফেরান' +
+    '<input type="file" id="s_restore" accept=".json,application/json" hidden></label>' +
+    '<label class="btn sec" style="cursor:pointer">Excel থেকে ফেরান' +
+    '<input type="file" id="s_xlrestore" accept=".xlsx,.xls" hidden></label></div>' +
+    backupNoteHTML() +
     '<div class="hint">' + (cloud
       ? 'ডেটা ক্লাউডে আছে, সব ফোনে এক। তবু মাসে একবার ব্যাকআপ নামিয়ে রাখা ভালো।'
       : 'এখন ডেটা শুধু এই ফোনে আছে। নিয়মিত ব্যাকআপ নিন — ফোন হারালে বা ব্রাউজারের ডেটা মুছলে সব চলে যাবে।') + '</div>' +
@@ -1536,6 +1573,7 @@ function openSettings(){
   $('#s_xls').addEventListener('click', exportXlsx);
   $('#s_json').addEventListener('click', exportJson);
   $('#s_restore').addEventListener('change', e => { if (e.target.files[0]) importJson(e.target.files[0]); });
+  $('#s_xlrestore').addEventListener('change', e => { if (e.target.files[0]) importXlsx(e.target.files[0]); });
   $('#s_save').addEventListener('click', async () => {
     if (!cloud) S.settings.myName = $('#s_name').value.trim();
     S.settings.perFloorValue = Number($('#s_floor').value) || 0;
@@ -1565,6 +1603,24 @@ async function paintStaff(){
     '<div class="hint">নতুন কর্মী যোগ করতে Supabase → Authentication → Users → Add user।</div>';
 }
 
+const BK_KEY = 'jara.lastBackup';
+function lastBackup(){ try{ return localStorage.getItem(BK_KEY) || ''; }catch(e){ return ''; } }
+function markBackup(){ try{ localStorage.setItem(BK_KEY, todayISO()); }catch(e){} }
+function backupAge(){
+  const d = lastBackup();
+  if (!d) return null;
+  return Math.max(0, Math.round((midnight(todayISO()) - midnight(d)) / DAY));
+}
+function backupNoteHTML(){
+  const a = backupAge();
+  if (a === null)
+    return '<div class="warnbox"><b>এখনো ব্যাকআপ নেননি</b>মাসে একবার “ফাইল ব্যাকআপ” নামিয়ে ' +
+           'Google Drive বা WhatsApp-এ নিজেকে পাঠিয়ে রাখুন। ৩০ সেকেন্ডের কাজ।</div>';
+  if (a >= 30)
+    return '<div class="warnbox"><b>' + bn(a) + ' দিন ব্যাকআপ নেননি</b>আজই একটা নামিয়ে রাখুন।</div>';
+  return '<div class="hint" style="margin-bottom:12px">শেষ ব্যাকআপ: ' + banglaDate(lastBackup()) + '</div>';
+}
+
 function download(blob, filename){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1577,8 +1633,9 @@ function exportJson(){
   const payload = { app: 'jara-maath', version: 1, at: new Date().toISOString(),
                     settings: S.settings, customers: S.list };
   download(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }),
-           'jara-maath-backup-' + todayISO() + '.json');
-  toast('ব্যাকআপ নামছে');
+           'jara-crm-backup-' + todayISO() + '.json');
+  markBackup();
+  toast('ব্যাকআপ নামছে — Drive বা নিজের WhatsApp-এ রেখে দিন');
 }
 
 function importJson(file){
@@ -1643,7 +1700,9 @@ function importJson(file){
 function exportXlsx(){
   if (typeof XLSX === 'undefined'){ toast('Excel সুবিধা লোড হয়নি'); return; }
   const rows = S.list.map(c => ({
+    'আইডি': c.id,
     'নাম': c.name || '', 'ধরন': c.type || '', 'মোবাইল': c.phone || '',
+    'WhatsApp': c.waSame === false ? (c.whatsapp || '') : '',
     'গ্রাম': c.village || '', 'ঠিকানা': c.address || '',
     'তলা': c.floors || '', 'নির্মাণের অবস্থা': c.stage || '',
     'ইলেকট্রিক কাজ': c.elecStatus || '', 'মাল লাগবে': NEED_LABEL[String(c.needDays || '')] || '',
@@ -1654,6 +1713,8 @@ function exportXlsx(){
     'ল্যাটিটিউড': c.lat == null ? '' : c.lat, 'লংগিটিউড': c.lng == null ? '' : c.lng,
     'চা-দাওয়াত': c.teaDate || '', 'পরের যোগাযোগ': c.nextDate || '',
     'শেষ যোগাযোগ': (c.lastContact || c.createdAt || '').slice(0, 10),
+    'চা-দাওয়াতের অবস্থা': TEA_LABEL[c.teaStatus || 'none'] || '',
+    'কে তুলেছে': c.by || '',
     'নোট': c.notes || '',
   }));
   const wb = XLSX.utils.book_new();
@@ -1664,8 +1725,115 @@ function exportXlsx(){
     'বিবরণ': e.text || '', 'তারিখ': (e.t || '').slice(0, 10),
   })));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ev), 'ইতিহাস');
-  XLSX.writeFile(wb, 'জারা-মাঠ-' + todayISO() + '.xlsx');
+  XLSX.writeFile(wb, 'জারা-CRM-' + todayISO() + '.xlsx');
   toast('Excel নামছে');
+}
+
+const XL_TYPE = {};
+TYPES.forEach(t => XL_TYPE[t] = t);
+const XL_NEED = {};
+Object.keys(NEED_LABEL).forEach(k => XL_NEED[NEED_LABEL[k]] = k);
+const XL_TEA = {};
+TEA.forEach(([k, l]) => XL_TEA[l] = k);
+const XL_STATUS = { 'পেয়েছি': 'won', 'হাতছাড়া': 'lost', 'চলমান': 'open' };
+
+function cell(r, k){ const v = r[k]; return v == null ? '' : String(v).trim(); }
+
+function rowToCustomer(r, existing){
+  const c = existing ? Object.assign({}, existing) : {
+    id: cell(r, 'আইডি') || uid(), createdAt: new Date().toISOString(), events: [], status: 'open'
+  };
+  c.name   = cell(r, 'নাম');
+  c.type   = XL_TYPE[cell(r, 'ধরন')] || c.type || TYPES[0];
+  c.phone  = cell(r, 'মোবাইল');
+  const wa = cell(r, 'WhatsApp');
+  c.waSame = !wa;
+  c.whatsapp = wa || c.phone;
+  c.village = cell(r, 'গ্রাম');
+  c.address = cell(r, 'ঠিকানা');
+  const fl = cell(r, 'তলা'); if (fl) c.floors = fl;
+  if (cell(r, 'নির্মাণের অবস্থা')) c.stage = cell(r, 'নির্মাণের অবস্থা');
+  if (cell(r, 'ইলেকট্রিক কাজ'))   c.elecStatus = cell(r, 'ইলেকট্রিক কাজ');
+  const nd = XL_NEED[cell(r, 'মাল লাগবে')]; if (nd !== undefined) c.needDays = nd;
+  c.supplierName = cell(r, 'এখন মাল নেয়');
+  c.supplierShop = cell(r, 'সেই দোকান');
+  const st = XL_STATUS[cell(r, 'অবস্থা')]; if (st) c.status = st;
+  if (cell(r, 'হাতছাড়া হয়েছে যার কাছে')) c.lostTo = cell(r, 'হাতছাড়া হয়েছে যার কাছে');
+  if (cell(r, 'বিক্রি')) c.saleAmount = cell(r, 'বিক্রি');
+  const la = parseFloat(cell(r, 'ল্যাটিটিউড')), ln = parseFloat(cell(r, 'লংগিটিউড'));
+  c.lat = isNaN(la) ? null : la; c.lng = isNaN(ln) ? null : ln;
+  if (cell(r, 'চা-দাওয়াত'))    c.teaDate  = cell(r, 'চা-দাওয়াত').slice(0, 10);
+  if (cell(r, 'পরের যোগাযোগ')) c.nextDate = cell(r, 'পরের যোগাযোগ').slice(0, 10);
+  const ts = XL_TEA[cell(r, 'চা-দাওয়াতের অবস্থা')]; if (ts) c.teaStatus = ts;
+  if (cell(r, 'কে তুলেছে')) c.by = cell(r, 'কে তুলেছে');
+  c.notes = cell(r, 'নোট');
+  c.updatedAt = new Date().toISOString();
+  if (!c.events) c.events = [];
+  return c;
+}
+
+function importXlsx(file){
+  if (typeof XLSX === 'undefined'){ toast('Excel সুবিধা লোড হয়নি'); return; }
+  const r = new FileReader();
+  r.onload = () => {
+    let rows;
+    try{
+      const wb = XLSX.read(new Uint8Array(r.result), { type: 'array' });
+      const sheet = wb.Sheets['কাস্টমার'] || wb.Sheets[wb.SheetNames[0]];
+      if (!sheet) throw new Error('শিট নেই');
+      rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    }catch(e){ toast('Excel ফাইলটি পড়া গেল না'); return; }
+
+    const byIdMap = new Map(S.list.map(x => [x.id, x]));
+    const byPhone = new Map();
+    S.list.forEach(x => { const d = phoneDigits(x.phone); if (d) byPhone.set(d.slice(-10), x); });
+
+    const fresh = [], upd = [], skip = [];
+    rows.forEach(row => {
+      const name = cell(row, 'নাম');
+      if (!name){ skip.push(row); return; }
+      const id = cell(row, 'আইডি');
+      let cur = id ? byIdMap.get(id) : null;
+      if (!cur){
+        const d = phoneDigits(cell(row, 'মোবাইল'));
+        if (d.length >= 10) cur = byPhone.get(d.slice(-10));
+      }
+      if (cur) upd.push({ row, cur }); else fresh.push({ row });
+    });
+
+    const line = (n, label, note) => n
+      ? '<div class="rrow"><span>' + label + (note ? '<br><small class="muted">' + note + '</small>' : '') +
+        '</span><span class="rn">' + bn(n) + '</span></div>' : '';
+
+    openSheet('Excel থেকে ফেরানো',
+      '<p class="muted" style="margin-top:0">ফাইলে ' + bn(rows.length) + ' টি সারি পাওয়া গেছে।</p>' +
+      '<div class="card">' +
+        line(fresh.length, 'নতুন — যোগ হবে') +
+        line(upd.length, 'আগে থেকেই আছে — তথ্য বদলাবে', 'আইডি বা মোবাইল নম্বর মিলেছে') +
+        line(skip.length, 'নাম নেই — বাদ যাবে') +
+      '</div>' +
+      '<div class="warnbox" style="margin-top:12px"><b>Excel-এ সব থাকে না</b>' +
+      'ফলো-আপের ইতিহাস আর বাড়ির ছবি Excel ফাইলে থাকে না। ফেরালে পুরোনো রেকর্ডের ইতিহাস ও ছবি ' +
+      'যেমন আছে তেমনই থাকবে, মুছবে না — শুধু উপরের তথ্যগুলো বদলাবে।<br><br>' +
+      'পুরো ব্যাকআপ ফেরাতে হলে <b>ফাইল ব্যাকআপ</b> (.json) ব্যবহার করুন, সেখানে সব থাকে।</div>',
+
+      '<div class="btnrow"><button class="btn sec" data-close>থাক</button>' +
+      '<button class="btn gold" id="xlGo">ফেরান</button></div>');
+
+    $('#xlGo').addEventListener('click', async () => {
+      const btn = $('#xlGo'); btn.disabled = true; btn.textContent = 'চলছে…';
+      let done = 0, failed = 0;
+      for (const item of fresh.concat(upd)){
+        const rec = rowToCustomer(item.row, item.cur);
+        const i = S.list.findIndex(x => x.id === rec.id);
+        if (i >= 0) S.list[i] = rec;
+        if (await saveRec(rec)) done++; else failed++;
+      }
+      closeSheet(); render();
+      toast(bn(done) + ' টি ফেরানো হয়েছে' + (failed ? ', ' + bn(failed) + ' টি পারেনি' : ''));
+    });
+  };
+  r.readAsArrayBuffer(file);
 }
 
 /* ══════════ ১৪. রাউটার ══════════ */
