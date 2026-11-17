@@ -407,6 +407,13 @@ function viewToday(){
          '<div><span class="k">কাজ পেয়েছি</span><span class="v">' + (sales ? money(sales) : bn(won.length) + ' টি') + '</span></div>' +
        '</div></section>';
 
+  if (!standalone())
+    h += '<div class="installbar" id="installBar"' + (INSTALL_EVT ? '' : ' hidden') + '>' +
+         '<span class="ib-ic">জ</span>' +
+         '<span class="ib-t"><b>ফোনে অ্যাপ হিসেবে বসান</b>' +
+         '<small>হোম স্ক্রিন থেকে এক চাপে খুলবে</small></span>' +
+         '<button class="btn gold" id="ibGo">বসান</button></div>';
+
   h += '<div class="quick">' +
        '<button class="qa" data-q="add"><span class="qi">＋</span>নতুন</button>' +
        '<button class="qa" data-q="route"><span class="qi">➤</span>আজকের রুট</button>' +
@@ -1825,6 +1832,10 @@ function openSettings(){
     '<input id="s_floor" type="number" inputmode="numeric" min="0" value="' + esc(s.perFloorValue || '') + '" placeholder="যেমন ২৫০০০"></label>' +
     '<div class="hint" style="margin-top:-8px;margin-bottom:14px">এটা আপনার নিজের অনুমান — আমি কোনো দাম বসাইনি। দিলে পাইপলাইনে কত টাকার কাজ আছে সেটা হিসাব করে দেখাব।</div>' +
 
+    (standalone() ? '' :
+      '<button type="button" class="btn pri block" id="s_install" style="margin-bottom:14px">' +
+      '📲 ফোনে অ্যাপ হিসেবে বসান</button>') +
+
     '<div class="sec-h"><h2>ডেটা</h2></div>' +
     '<div class="btnrow" style="margin:9px 0"><button class="btn sec" id="s_xls">Excel ব্যাকআপ</button>' +
     '<button class="btn sec" id="s_json">ফাইল ব্যাকআপ</button></div>' +
@@ -1871,6 +1882,9 @@ function openSettings(){
       $('#s_addstaff').addEventListener('click', () => openAddStaff());
     }
   }
+
+  const si = $('#s_install');
+  if (si) si.addEventListener('click', doInstall);
 
   $('#s_xls').addEventListener('click', exportXlsx);
   $('#s_json').addEventListener('click', exportJson);
@@ -2258,6 +2272,7 @@ function wireView(){
     render(); toast('জরুরি ' + bn(S.routeIds.length) + ' জন বাছাই হয়েছে');
   });
 
+  const ib = $('#ibGo');     if (ib) ib.addEventListener('click', doInstall);
   const xls = $('#xls');     if (xls) xls.addEventListener('click', exportXlsx);
   const jb  = $('#jsonb');   if (jb)  jb.addEventListener('click', exportJson);
   const os  = $('#openSettings'); if (os) os.addEventListener('click', openSettings);
@@ -2276,6 +2291,68 @@ function useHere(){
     render();
   }, err => toast(err.code === 1 ? 'লোকেশনের অনুমতি দেওয়া হয়নি' : 'অবস্থান পাওয়া যায়নি'),
      { enableHighAccuracy: true, timeout: 15000 });
+}
+
+/* ══════════ ১৪খ. ফোনে ইনস্টল ══════════ */
+
+let INSTALL_EVT = null;
+
+const standalone = () =>
+  window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  INSTALL_EVT = e;
+  const b = $('#installBar');
+  if (b) b.hidden = false;
+});
+window.addEventListener('appinstalled', () => {
+  INSTALL_EVT = null;
+  const b = $('#installBar');
+  if (b) b.hidden = true;
+  toast('অ্যাপ ইনস্টল হয়েছে');
+});
+
+async function doInstall(){
+  if (INSTALL_EVT){
+    INSTALL_EVT.prompt();
+    const r = await INSTALL_EVT.userChoice.catch(() => null);
+    INSTALL_EVT = null;
+    const b = $('#installBar');
+    if (b) b.hidden = true;
+    if (r && r.outcome === 'accepted') toast('ইনস্টল হচ্ছে…');
+    return;
+  }
+  installHelp();
+}
+
+function installHelp(){
+  if (standalone()){
+    openSheet('অ্যাপ ইনস্টল',
+      '<div class="card"><div class="empty"><strong>ইনস্টল করা আছে</strong>' +
+      'আপনি এখন অ্যাপ থেকেই চালাচ্ছেন।</div></div>',
+      '<button class="btn sec block" data-close>ঠিক আছে</button>');
+    return;
+  }
+  const steps = isIOS()
+    ? ['নিচের <b>শেয়ার</b> বোতামে চাপুন (উপরের দিকে তীর চিহ্ন)',
+       'তালিকা নামিয়ে <b>Add to Home Screen</b> খুঁজুন',
+       'ডানদিকে <b>Add</b> চাপুন']
+    : ['ব্রাউজারের ডানদিকে উপরে <b>⋮</b> (তিন বিন্দু) চাপুন',
+       '<b>Add to Home screen</b> বা <b>অ্যাপ ইনস্টল করুন</b> খুঁজুন',
+       '<b>Install</b> বা <b>যোগ করুন</b> চাপুন'];
+
+  openSheet('ফোনে অ্যাপ হিসেবে বসান',
+    '<p style="margin-top:0" class="muted">ইনস্টল করলে হোম স্ক্রিনে জারার লোগো বসবে, ' +
+    'ব্রাউজারের ঠিকানার ঘর থাকবে না — একদম অ্যাপের মতো খুলবে।</p>' +
+    '<div class="card"><div class="tl">' +
+    steps.map(t => '<div class="tli"><div class="tt">' + t + '</div></div>').join('') +
+    '</div></div>' +
+    (isIOS() ? '<div class="hint">আইফোনে অবশ্যই <b>Safari</b> দিয়ে খুলতে হবে, Chrome দিয়ে হবে না।</div>'
+             : '<div class="hint">অপশনটা না দেখলে পাতাটা একবার রিফ্রেশ করে কয়েক সেকেন্ড অপেক্ষা করুন, ' +
+               'তারপর আবার মেনু খুলুন।</div>'),
+    '<button class="btn sec block" data-close>বুঝেছি</button>');
 }
 
 /* ══════════ ১৫. লগইন ও চালু ══════════ */
@@ -2349,6 +2426,12 @@ document.addEventListener('keydown', e => {
 });
 
 (async function boot(){
+  // আগে এটা শেষে ছিল — লগইন পর্দায় আটকে গেলে কখনো চালুই হতো না,
+  // ফলে ব্রাউজার ইনস্টলের সুযোগ দিত না।
+  if ('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+
   document.querySelectorAll('.tabbar button').forEach(b =>
     b.addEventListener('click', () => { S.view = b.dataset.view; render(); }));
   $('#btnAdd').addEventListener('click', () => openForm(null));
@@ -2389,8 +2472,4 @@ document.addEventListener('keydown', e => {
 
   await startApp();
   wireSync();
-
-  if ('serviceWorker' in navigator){
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  }
 })();

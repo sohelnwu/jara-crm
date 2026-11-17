@@ -389,3 +389,13 @@ main.flush{padding-left:0;padding-right:0}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .vp-i.on{background:var(--surface-2)}}
 :root[data-theme="dark"] .vp-i.on{background:var(--surface-2)}
 .vp-more{padding:14px;text-align:center;color:var(--fg-3);font-size:12px}
+
+/* ── ইনস্টলের আহ্বান ────────────────────── */
+.installbar{display:flex;align-items:center;gap:11px;background:var(--navy);color:#fff;
+  border-radius:var(--radius);padding:12px 13px}
+.ib-ic{width:38px;height:38px;flex:0 0 auto;border-radius:12px;background:var(--gold);color:var(--navy);
+  display:grid;place-items:center;font-weight:700;font-size:19px}
+.ib-t{flex:1;min-width:0}
+.ib-t b{display:block;font-size:13.5px}
+.ib-t small{display:block;font-size:11.5px;color:#B9CBE2;margin-top:1px}
+.installbar .btn{padding:9px 14px;font-size:13px;flex:0 0 auto}
