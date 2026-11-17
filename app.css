@@ -288,3 +288,30 @@ main.flush{padding-left:0;padding-right:0}
 .rrow .rn{font-family:var(--num);font-variant-numeric:tabular-nums;font-weight:600}
 .tablewrap{overflow-x:auto}
 .photo{width:100%;border-radius:var(--radius-sm);border:1px solid var(--line);display:block}
+
+/* ── ফলো-আপ সারি ───────────────────────── */
+.frow{display:flex;align-items:stretch;border-bottom:1px solid var(--line-soft)}
+.frow:last-child{border-bottom:0}
+.fmain{flex:1;min-width:0;display:flex;gap:11px;align-items:flex-start;padding:13px 4px 13px 14px;text-align:left;background:none}
+.fmain:active{background:var(--surface-2)}
+.facts{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:0 12px 0 6px}
+.fact{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;font-size:16px;
+  background:var(--surface-2);color:var(--fg-2);border:1px solid var(--line);text-decoration:none;line-height:1}
+.fact.wa{background:var(--cool-bg);color:var(--cool);border-color:transparent}
+.fact.done{background:var(--cream);color:var(--gold-dk);border-color:transparent;font-weight:700}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .fact.done{color:var(--gold)}}
+:root[data-theme="dark"] .fact.done{color:var(--gold)}
+
+/* তারিখ অনুযায়ী ভাঁজ */
+.dgroup{border-bottom:1px solid var(--line-soft)}
+.dgroup:last-child{border-bottom:0}
+.dgroup>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:12px 14px;cursor:pointer;font-weight:600;font-size:13.5px;list-style:none;background:var(--surface-2)}
+.dgroup>summary::-webkit-details-marker{display:none}
+.dgroup>summary::after{content:"▾";color:var(--fg-3);font-size:11px;margin-left:auto}
+.dgroup[open]>summary::after{content:"▴"}
+.dgroup>summary span:first-child{flex:0 0 auto}
+
+/* দ্রুত তারিখ বাছাই */
+.qd{display:flex;gap:7px;flex-wrap:wrap}
+.qd .fchip{padding:6px 12px;font-size:12px}

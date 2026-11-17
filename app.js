@@ -50,9 +50,35 @@ const NEED_LABEL = {
 
 const EVENT_LABEL = {
   created: 'রেকর্ড খোলা হয়েছে', visit: 'মাঠে ভিজিট', call: 'ফোনে কথা',
-  tea: 'দোকানে এসেছেন', sale: 'বিক্রি', won: 'কাজ পেয়েছি',
+  wa: 'WhatsApp-এ কথা', tea: 'দোকানে এসেছেন', sale: 'বিক্রি', won: 'কাজ পেয়েছি',
   lost: 'কাজ হাতছাড়া', note: 'নোট', stage: 'অবস্থা বদল', pin: 'ম্যাপে পিন',
+  invite: 'চা-দাওয়াত দেওয়া হয়েছে', promise: 'আসার তারিখ দিয়েছেন',
+  noshow: 'আসেননি', reschedule: 'তারিখ পিছিয়েছে',
 };
+
+/* চা-দাওয়াতের ধাপ — মাঠ থেকে দোকান পর্যন্ত পুরো পথ */
+const TEA = [
+  ['none',    'দাওয়াত দেওয়া হয়নি'],
+  ['invited', 'দাওয়াত দেওয়া হয়েছে'],
+  ['promised','আসবেন বলেছেন'],
+  ['came',    'দোকানে এসেছেন'],
+  ['noshow',  'আসেননি — আবার বলতে হবে'],
+];
+const TEA_LABEL = Object.fromEntries(TEA);
+const TEA_CHIP  = { none:'idle', invited:'gold', promised:'warm', came:'ok', noshow:'bad' };
+
+/* যোগাযোগের মাধ্যম ও ফলাফল */
+const METHODS = [
+  ['visit','সরাসরি দেখা'], ['call','ফোনে'], ['wa','WhatsApp-এ'], ['tea','দোকানে এসেছেন'],
+];
+const OUTCOMES = [
+  ['good',    'আগ্রহ দেখিয়েছেন'],
+  ['promise', 'দোকানে আসবেন বলেছেন'],
+  ['later',   'পরে জানাবেন'],
+  ['busy',    'ধরতে পারিনি / ব্যস্ত'],
+  ['nointerest','আগ্রহ নেই'],
+];
+const OUTCOME_LABEL = Object.fromEntries(OUTCOMES);
 
 /* ══════════ ২. ছোট সহায়ক ══════════ */
 
@@ -65,7 +91,13 @@ const bn = v => String(v == null ? '' : v).replace(/\d/g, d => BN[+d]);
 const money = n => '৳' + bn(Math.round(n || 0).toLocaleString('en-US'));
 
 const DAY = 864e5;
-const todayISO = () => new Date().toISOString().slice(0, 10);
+/* সব তারিখ ফোনের নিজের সময় ধরে — UTC নয়। বাংলাদেশ UTC+৬, তাই রাত ১২টার পর
+   UTC ধরলে আগের দিন দেখাত। */
+function isoLocal(d){
+  return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+}
+const todayISO = () => isoLocal(new Date());
+const midnight = iso => new Date(iso + 'T00:00:00').getTime();
 const daysSince = iso => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / DAY) : 999;
 
 function banglaDate(iso){
@@ -136,9 +168,42 @@ function score(c){
   }
 
   const t = todayISO();
-  if ((c.teaDate && !c.teaDone && c.teaDate <= t) || (c.nextDate && c.nextDate <= t)) s += 25;
+  if (dueDate(c) && dueDate(c) <= t) s += 25;
+  if (c.teaStatus === 'promised') s += 10;   // কথা দিয়েছেন — ফেলে রাখা যাবে না
+  if (c.teaStatus === 'noshow')   s += 6;    // আসেননি, আবার ধরতে হবে
   return Math.round(s);
 }
+
+/* কবে ধরতে হবে — চা-দাওয়াতের তারিখ ও পরের যোগাযোগের মধ্যে যেটা আগে */
+function dueDate(c){
+  const a = (c.teaStatus === 'promised' || c.teaStatus === 'invited') && c.teaDate ? c.teaDate : '';
+  const b = c.nextDate || '';
+  if (a && b) return a < b ? a : b;
+  return a || b || '';
+}
+function dueKind(c){
+  const d = dueDate(c);
+  if (!d) return '';
+  if (d === (c.teaDate || '') && (c.teaStatus === 'promised' || c.teaStatus === 'invited')) return 'tea';
+  return 'call';
+}
+
+/* ফলো-আপ ভাগ: overdue | today | week | later | none */
+function bucket(c){
+  if (c.status === 'won' || c.status === 'lost') return 'none';
+  const d = dueDate(c);
+  if (!d) return 'none';
+  const t = todayISO();
+  if (d < t) return 'overdue';
+  if (d === t) return 'today';
+  return d <= plusDays(7) ? 'week' : 'later';
+}
+function overdueDays(c){
+  const d = dueDate(c);
+  if (!d) return 0;
+  return Math.max(0, Math.round((midnight(todayISO()) - midnight(d)) / DAY));
+}
+function plusDays(n){ return isoLocal(new Date(Date.now() + n * DAY)); }
 
 function band(n){
   if (n >= 60) return { k: 'hot',  t: 'এখনই ধরুন' };
@@ -219,8 +284,7 @@ function viewToday(){
   const open = S.list.filter(c => c.status !== 'won' && c.status !== 'lost');
   const ranked = open.map(c => ({ c, s: score(c) })).sort((a, b) => b.s - a.s);
 
-  const due = ranked.filter(x =>
-    (x.c.teaDate && !x.c.teaDone && x.c.teaDate <= t) || (x.c.nextDate && x.c.nextDate <= t));
+  const due = ranked.filter(x => ['overdue','today'].includes(bucket(x.c)));
   const hot = ranked.filter(x => !due.includes(x)).slice(0, 8);
 
   const pipeline = open.reduce((n, c) => n + pipelineValue(c, S.settings.perFloorValue), 0);
@@ -243,7 +307,7 @@ function viewToday(){
 
   h += '<div class="quick">' +
        '<button class="qa" data-q="add"><span class="qi">＋</span>নতুন</button>' +
-       '<button class="qa" data-q="near"><span class="qi">◎</span>কাছাকাছি</button>' +
+       '<button class="qa" data-q="route"><span class="qi">➤</span>আজকের রুট</button>' +
        '<button class="qa" data-q="pin"><span class="qi">◈</span>পিন বাকি' + (pinless ? ' (' + bn(pinless) + ')' : '') + '</button>' +
        '<button class="qa" data-q="settings"><span class="qi">⚙</span>সেটিংস</button>' +
        '</div>';
@@ -297,6 +361,99 @@ function personRow(c, s){
       (km != null ? '<span class="pdist">' + distText(km) + '</span>' : '') +
       '<span class="muted" style="font-size:11px">' + agoText(c.lastContact || c.createdAt) + '</span>' +
     '</span></button>';
+}
+
+/* ══════════ ৬ক. পর্দা: ফলো-আপ ══════════ */
+
+function followRow(c){
+  const b = band(score(c));
+  const kind = dueKind(c);
+  const d = dueDate(c);
+  const od = overdueDays(c);
+  const wa = waNumber(c.phone);
+
+  const when = od > 0
+    ? '<span class="chip hot">' + bn(od) + ' দিন পার</span>'
+    : d === todayISO() ? '<span class="chip warm">আজ</span>'
+    : '<span class="chip cool">' + banglaDate(d) + '</span>';
+
+  const why = kind === 'tea'
+    ? '<span class="chip gold">' + (c.teaStatus === 'promised' ? 'আসবেন বলেছেন' : 'চা-দাওয়াত') + '</span>'
+    : '';
+
+  return '<div class="frow">' +
+    '<button class="fmain" data-open="' + esc(c.id) + '">' +
+      '<span class="pstripe" style="background:' + BAND_COLOR[b.k] + '"></span>' +
+      '<span class="pbody">' +
+        '<span class="pname">' + esc(c.name || 'নামহীন') + when + why + '</span>' +
+        '<span class="pmeta">' + esc([c.village, c.type, c.elecStatus].filter(Boolean).join(' · ') || '—') +
+        ' · শেষ কথা ' + agoText(c.lastContact || c.createdAt) + '</span>' +
+      '</span>' +
+    '</button>' +
+    '<span class="facts">' +
+      '<a class="fact" href="tel:' + esc(c.phone) + '" aria-label="ফোন">✆</a>' +
+      (wa ? '<a class="fact wa" href="https://wa.me/' + wa + '" target="_blank" rel="noopener" aria-label="WhatsApp">✆</a>' : '') +
+      '<button class="fact done" data-fup="' + esc(c.id) + '" aria-label="ফলো-আপ লিখুন">✓</button>' +
+    '</span></div>';
+}
+
+function viewFollow(){
+  const live = S.list.filter(c => c.status !== 'won' && c.status !== 'lost');
+  const g = { overdue: [], today: [], week: [], later: [], none: [] };
+  live.forEach(c => g[bucket(c)].push(c));
+  const bySoon = (a, b) => (dueDate(a) || '9') < (dueDate(b) || '9') ? -1 : 1;
+  ['overdue','today','week','later'].forEach(k => g[k].sort(bySoon));
+
+  const coming = live.filter(c => c.teaStatus === 'promised' && c.teaDate);
+  const noshow = live.filter(c => c.teaStatus === 'noshow');
+  const noplan = live.filter(c => !dueDate(c));
+
+  let h = '<div class="stats">' +
+    '<div class="stat"><div class="k">বাকি পড়েছে</div><div class="v" style="color:var(--hot)">' + bn(g.overdue.length) + '</div></div>' +
+    '<div class="stat"><div class="k">আজ</div><div class="v">' + bn(g.today.length) + '</div></div>' +
+    '<div class="stat"><div class="k">আগামী ৭ দিন</div><div class="v">' + bn(g.week.length) + '</div></div>' +
+    '<div class="stat"><div class="k">দোকানে আসার কথা</div><div class="v">' + bn(coming.length) + '</div></div>' +
+    '</div>';
+
+  const block = (title, arr, note) => arr.length
+    ? '<div class="sec-h"><h2>' + title + '</h2><span class="more">' + bn(arr.length) + ' জন</span></div>' +
+      (note ? '<p class="muted" style="margin:0 2px">' + note + '</p>' : '') +
+      '<div class="card pad0">' + arr.map(followRow).join('') + '</div>'
+    : '';
+
+  h += block('বাকি পড়েছে', g.overdue, 'এগুলো তারিখ পেরিয়ে গেছে — আজই ধরুন।');
+  h += block('আজ ধরতে হবে', g.today);
+  h += block('আগামী ৭ দিন', g.week);
+
+  /* দোকানে আসার তারিখ অনুযায়ী */
+  if (coming.length){
+    const byDate = {};
+    coming.forEach(c => { (byDate[c.teaDate] = byDate[c.teaDate] || []).push(c); });
+    h += '<div class="sec-h"><h2>দোকানে আসার তারিখ</h2><span class="more">তারিখে চাপুন</span></div><div class="card pad0">' +
+      Object.keys(byDate).sort().map(d => {
+        const ov = d < todayISO();
+        return '<details class="dgroup"' + (ov || d === todayISO() ? ' open' : '') + '>' +
+          '<summary><span>' + banglaDate(d) + '</span>' +
+          '<span class="chip ' + (ov ? 'hot' : d === todayISO() ? 'warm' : 'cool') + '">' +
+          bn(byDate[d].length) + ' জন</span></summary>' +
+          byDate[d].map(followRow).join('') + '</details>';
+      }).join('') + '</div>';
+  }
+
+  if (noshow.length) h += block('আসেননি — আবার দাওয়াত দিন', noshow);
+
+  if (noplan.length){
+    h += '<div class="sec-h"><h2>তারিখ বসানো নেই</h2><span class="more">' + bn(noplan.length) + ' জন</span></div>' +
+      '<p class="muted" style="margin:0 2px">এদের পরের যোগাযোগের তারিখ দেওয়া নেই, তাই কেউ মনে করিয়ে দেবে না।</p>' +
+      '<div class="card pad0">' + noplan.slice(0, 15).map(followRow).join('') + '</div>';
+  }
+
+  if (!live.length)
+    h += '<div class="card"><div class="empty"><strong>এখনো কেউ নেই</strong>কাস্টমার যোগ করলে এখানে ফলো-আপের তালিকা তৈরি হবে।</div></div>';
+  else if (!g.overdue.length && !g.today.length && !g.week.length && !coming.length && !noplan.length)
+    h += '<div class="card"><div class="empty"><strong>আজ সব পরিষ্কার</strong>কোনো ফলো-আপ বাকি নেই।</div></div>';
+
+  return h;
 }
 
 /* ══════════ ৭. পর্দা: কাস্টমার ══════════ */
@@ -515,6 +672,36 @@ function viewReport(){
     }).join('') || '<div class="empty">তথ্য নেই</div>';
   h += '</div>';
 
+  /* চা-দাওয়াতের ফানেল — মাঠ থেকে দোকান পর্যন্ত */
+  const teaOf = k => all.filter(c => (c.teaStatus || 'none') === k).length;
+  const invited = all.filter(c => c.teaStatus && c.teaStatus !== 'none').length;
+  const came = teaOf('came');
+  h += '<div class="sec-h"><h2>চা-দাওয়াত কতদূর গেল</h2>' +
+       '<span class="more">' + (invited ? bn(Math.round(came / invited * 100)) + '% এসেছেন' : '—') + '</span></div><div class="card">' +
+    TEA.filter(([k]) => k !== 'none').map(([k, l]) => {
+      const n = teaOf(k);
+      return '<div style="padding:8px 0"><div class="rrow" style="border:0;padding:0 0 6px">' +
+        '<span>' + l + '</span><span class="rn">' + bn(n) + '</span></div>' +
+        '<div class="bar"><i style="width:' + (invited ? n / invited * 100 : 0) + '%"></i></div></div>';
+    }).join('') + (invited ? '' : '<div class="empty">এখনো কাউকে দাওয়াত দেওয়া হয়নি</div>') + '</div>';
+
+  /* কে কী এনেছে */
+  const byStaff = {};
+  all.forEach(c => {
+    const n = (c.by || '').trim() || 'নাম লেখা নেই';
+    byStaff[n] = byStaff[n] || { n: 0, tea: 0, won: 0, amt: 0 };
+    byStaff[n].n++;
+    if (c.teaStatus === 'came') byStaff[n].tea++;
+    if (c.status === 'won'){ byStaff[n].won++; byStaff[n].amt += Number(c.saleAmount) || 0; }
+  });
+  const ss = Object.entries(byStaff).sort((a, b) => b[1].n - a[1].n);
+  h += '<div class="sec-h"><h2>কে কতটা এনেছে</h2><span class="more">MDE অনুযায়ী</span></div><div class="card">' +
+    (ss.length ? ss.map(([n, d]) =>
+      '<div class="rrow"><span>' + esc(n) + '</span><span class="rn">' +
+      bn(d.n) + ' জন · ' + bn(d.tea) + ' দোকানে · ' + bn(d.won) + ' বিক্রি' +
+      (d.amt ? ' · ' + money(d.amt) : '') + '</span></div>').join('')
+      : '<div class="empty">সেটিংসে নিজের নাম দিলে এখানে হিসাব আলাদা হবে</div>') + '</div>';
+
   h += '<div class="sec-h"><h2>ব্যাকআপ ও সেটিংস</h2></div>' +
        '<div class="btnrow"><button class="btn sec" id="xls">Excel ব্যাকআপ</button>' +
        '<button class="btn sec" id="jsonb">ফাইল ব্যাকআপ</button></div>' +
@@ -582,11 +769,17 @@ function formHTML(c){
   '<input id="f_supshop" value="' + esc(v.supplierShop || '') + '" placeholder="এলাকা"></label>' +
   '</div>' +
 
-  '<label class="field"><span>দোকানে চা খেতে আসার তারিখ</span>' +
+  '<div class="grid2">' +
+  '<label class="field"><span>চা-দাওয়াতের অবস্থা</span><select id="f_teastat">' +
+    TEA.map(([k, l]) => '<option value="' + k + '"' + ((v.teaStatus || 'none') === k ? ' selected' : '') + '>' + l + '</option>').join('') +
+  '</select></label>' +
+  '<label class="field"><span>কবে আসবেন বলেছেন</span>' +
   '<input id="f_tea" type="date" value="' + esc(v.teaDate || '') + '"></label>' +
+  '</div>' +
 
   '<label class="field"><span>পরের বার কবে ধরব</span>' +
-  '<input id="f_next" type="date" value="' + esc(v.nextDate || '') + '"></label>' +
+  '<input id="f_next" type="date" value="' + esc(v.nextDate || (c ? '' : plusDays(7))) + '">' +
+  '<span class="hint">তারিখ না দিলে ফলো-আপের তালিকায় উঠবে না।</span></label>' +
 
   '<label class="field"><span>নোট</span>' +
   '<textarea id="f_notes" placeholder="যা মনে রাখা দরকার">' + esc(v.notes || '') + '</textarea></label>' +
@@ -683,8 +876,10 @@ async function saveForm(c){
   rec.lng = isNaN(lng) ? null : lng;
   rec.supplierName = $('#f_supplier').value.trim();
   rec.supplierShop = $('#f_supshop').value.trim();
+  rec.teaStatus = $('#f_teastat').value;
   rec.teaDate = $('#f_tea').value || '';
   rec.nextDate = $('#f_next').value || '';
+  if (!rec.by) rec.by = (S.settings.myName || '').trim();
   rec.notes = $('#f_notes').value.trim();
 
   if (type === TYPES[0]){
@@ -764,13 +959,20 @@ function openDetail(id){
     kv('নোট', esc(c.notes)) +
   '</div>';
 
-  body += '<div class="sec-h" style="margin-top:14px"><h2>কাজ লিখুন</h2></div>' +
+  const ts = c.teaStatus || 'none';
+  body += '<div class="sec-h" style="margin-top:14px"><h2>ফলো-আপ</h2>' +
+    '<span class="chip ' + TEA_CHIP[ts] + '">' + TEA_LABEL[ts] + '</span></div>' +
+    '<div class="card" style="margin-bottom:10px">' +
+      (dueDate(c)
+        ? '<div class="kv"><span class="k">পরের যোগাযোগ</span><span class="v">' + banglaDate(dueDate(c)) +
+          (overdueDays(c) ? ' <span class="chip hot">' + bn(overdueDays(c)) + ' দিন পার</span>' : '') + '</span></div>'
+        : '<div class="empty" style="padding:10px">তারিখ বসানো নেই — এই কাস্টমার তালিকায় উঠবে না</div>') +
+      (c.lastOutcome ? '<div class="kv"><span class="k">শেষ ফল</span><span class="v">' + OUTCOME_LABEL[c.lastOutcome] + '</span></div>' : '') +
+    '</div>' +
+    '<button class="btn gold block" data-log="call" style="margin-bottom:9px">ফলো-আপ লিখুন</button>' +
     '<div class="btnrow" style="margin-bottom:9px">' +
-    '<button class="btn sec" data-log="visit">মাঠে ভিজিট</button>' +
-    '<button class="btn sec" data-log="call">ফোনে কথা</button></div>' +
-    '<div class="btnrow" style="margin-bottom:9px">' +
-    '<button class="btn sec" data-log="tea">দোকানে এসেছেন</button>' +
-    '<button class="btn sec" data-log="note">নোট যোগ</button></div>';
+    '<button class="btn sec" data-log="visit">মাঠে দেখা হলো</button>' +
+    '<button class="btn sec" data-log="tea">দোকানে এসেছেন</button></div>';
 
   if (c.status !== 'won' && c.status !== 'lost'){
     body += '<div class="btnrow"><button class="btn gold" id="mWon">কাজ পেয়েছি</button>' +
@@ -807,24 +1009,84 @@ function openDetail(id){
   });
 }
 
-function logAction(c, type){
-  const label = EVENT_LABEL[type];
-  openSheet(label,
-    '<label class="field"><span>কী হয়েছে</span>' +
+
+
+function logAction(c, preset){
+  const method = preset && METHODS.some(m => m[0] === preset) ? preset : 'call';
+  const teaPre = preset === 'tea' ? 'came' : (c.teaStatus || 'none');
+
+  openSheet('ফলো-আপ লিখুন — ' + (c.name || 'নামহীন'),
+    '<label class="field"><span>কীভাবে যোগাযোগ হলো</span><select id="lgHow">' +
+      METHODS.map(([k, l]) => '<option value="' + k + '"' + (k === method ? ' selected' : '') + '>' + l + '</option>').join('') +
+    '</select></label>' +
+
+    '<label class="field"><span>কী ফল হলো</span><select id="lgOut">' +
+      '<option value="">বেছে নিন</option>' +
+      OUTCOMES.map(([k, l]) => '<option value="' + k + '">' + l + '</option>').join('') +
+    '</select></label>' +
+
+    '<label class="field"><span>কী কথা হলো</span>' +
     '<textarea id="lgTxt" placeholder="সংক্ষেপে লিখুন"></textarea></label>' +
-    (type === 'tea' ? '<div class="checkline"><input type="checkbox" id="lgTea" checked>' +
-      '<span>চা-দাওয়াতের কাজ শেষ হিসেবে চিহ্নিত করুন</span></div>' : '') +
-    '<label class="field"><span>পরের বার কবে ধরব</span>' +
-    '<input id="lgNext" type="date" value="' + esc(c.nextDate || '') + '"></label>',
+
+    '<label class="field"><span>চা-দাওয়াতের অবস্থা</span><select id="lgTea">' +
+      TEA.map(([k, l]) => '<option value="' + k + '"' + (teaPre === k ? ' selected' : '') + '>' + l + '</option>').join('') +
+    '</select></label>' +
+
+    '<label class="field" id="teaDateWrap"><span>কবে আসবেন বলেছেন</span>' +
+    '<input id="lgTeaDate" type="date" value="' + esc(c.teaDate || '') + '"></label>' +
+
+    '<label class="field"><span>পরের বার কবে ধরব <b class="req">*</b></span>' +
+    '<input id="lgNext" type="date" value="' + esc(c.nextDate || plusDays(7)) + '"></label>' +
+    '<div class="qd" style="margin-top:-6px;margin-bottom:14px">' +
+      [[2,'২ দিন'],[7,'৭ দিন'],[15,'১৫ দিন'],[30,'১ মাস']].map(([n, l]) =>
+        '<button type="button" class="fchip" data-nd="' + n + '">' + l + '</button>').join('') +
+    '</div>' +
+    '<div class="hint">তারিখ না দিলে এই কাস্টমার ফলো-আপের তালিকা থেকে হারিয়ে যাবে — কেউ মনে করিয়ে দেবে না।</div>',
+
     '<button class="btn gold block" id="lgSave">সংরক্ষণ</button>');
 
+  const teaSel = $('#lgTea');
+  const syncTea = () => { $('#teaDateWrap').hidden = !['invited','promised','noshow'].includes(teaSel.value); };
+  teaSel.addEventListener('change', syncTea); syncTea();
+
+  $('#sheet').querySelectorAll('[data-nd]').forEach(b =>
+    b.addEventListener('click', () => { $('#lgNext').value = plusDays(+b.dataset.nd); }));
+
   $('#lgSave').addEventListener('click', async () => {
-    addEvent(c, type, $('#lgTxt').value.trim());
-    const tea = $('#lgTea');
-    if (tea && tea.checked) c.teaDone = true;
+    const how = $('#lgHow').value;
+    const out = $('#lgOut').value;
+    const txt = $('#lgTxt').value.trim();
+    const oldTea = c.teaStatus || 'none';
+    const newTea = teaSel.value;
+
+    addEvent(c, how, [out ? OUTCOME_LABEL[out] : '', txt].filter(Boolean).join(' — '));
+    if (out) c.lastOutcome = out;
+
+    if (newTea !== oldTea){
+      c.teaStatus = newTea;
+      const map = { invited:'invite', promised:'promise', came:'tea', noshow:'noshow' };
+      if (map[newTea]) addEvent(c, map[newTea], newTea === 'promised' ? banglaDate($('#lgTeaDate').value) : '');
+      if (newTea === 'came'){ c.teaDone = true; c.teaCameOn = todayISO(); }
+    }
+    if (['invited','promised','noshow'].includes(newTea)) c.teaDate = $('#lgTeaDate').value || '';
+
     c.nextDate = $('#lgNext').value || '';
-    await persist(); closeSheet(); toast('লেখা হয়েছে'); render();
+    await persist(); closeSheet();
+    toast(c.nextDate ? 'লেখা হয়েছে — পরের তারিখ ' + banglaDate(c.nextDate) : 'লেখা হয়েছে');
+    render();
+
+    if (newTea === 'came' && c.status !== 'won') setTimeout(() => askPurchase(c), 350);
   });
+}
+
+/* দোকানে আসার পর — কিছু কিনেছেন কি না */
+function askPurchase(c){
+  openSheet('দোকানে এসেছেন',
+    '<p style="margin-top:0">' + esc(c.name || 'নামহীন') + ' দোকানে এসেছেন বলে লেখা হয়েছে। কিছু কিনেছেন?</p>' +
+    '<div class="hint">না কিনলেও সমস্যা নেই — সম্পর্কটাই আসল। পরে আবার ধরা যাবে।</div>',
+    '<div class="btnrow"><button class="btn sec" data-close>শুধু চা খেয়েছেন</button>' +
+    '<button class="btn gold" id="apYes">মাল কিনেছেন</button></div>');
+  $('#apYes').addEventListener('click', () => { closeSheet(); setTimeout(() => markWon(c), 250); });
 }
 
 function markWon(c){
@@ -978,7 +1240,7 @@ function exportXlsx(){
 
 /* ══════════ ১৪. রাউটার ══════════ */
 
-const TITLES = { today:'আজকের কাজ', people:'কাস্টমার', map:'ম্যাপ', route:'আজকের রুট', report:'রিপোর্ট' };
+const TITLES = { today:'আজকের কাজ', follow:'ফলো-আপ', people:'কাস্টমার', map:'ম্যাপ', route:'আজকের রুট', report:'রিপোর্ট' };
 
 function render(){
   const main = $('#app');
@@ -986,6 +1248,7 @@ function render(){
   main.classList.toggle('flush', S.view === 'map');
 
   if (S.view === 'today')      main.innerHTML = viewToday();
+  else if (S.view === 'follow') main.innerHTML = viewFollow();
   else if (S.view === 'people') main.innerHTML = viewPeople();
   else if (S.view === 'map')    { main.innerHTML = viewMap(); paintMap(); }
   else if (S.view === 'route')  main.innerHTML = viewRoute();
@@ -1007,7 +1270,14 @@ function wireView(){
     if (k === 'add') openForm(null);
     else if (k === 'settings') openSettings();
     else if (k === 'pin'){ S.view = 'people'; S.filter = 'nopin'; S.q = ''; render(); }
+    else if (k === 'route'){ S.view = 'route'; render(); }
     else if (k === 'near'){ S.view = 'route'; render(); useHere(); }
+  }));
+
+  main.querySelectorAll('[data-fup]').forEach(el => el.addEventListener('click', ev => {
+    ev.stopPropagation();
+    const c = byId(el.dataset.fup);
+    if (c) logAction(c);
   }));
 
   const q = $('#q');
