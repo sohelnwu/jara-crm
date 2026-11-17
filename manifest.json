@@ -1,7 +1,7 @@
 {
-  "name": "জারা মাঠ — ইলেকট্রিক বাজার ব্যবস্থাপনা",
-  "short_name": "জারা মাঠ",
-  "description": "জারা ইলেকট্রিক ও ইলেকট্রনিক্স — নির্মাণাধীন বাড়ি, মিস্ত্রি ও পাইকারি ক্রেতার মাঠ ব্যবস্থাপনা",
+  "name": "জারা ইলেকট্রিক CRM",
+  "short_name": "জারা CRM",
+  "description": "JARA ELECTRIC CRM — নির্মাণাধীন বাড়ি, মিস্ত্রি ও পাইকারি ক্রেতার মাঠ ব্যবস্থাপনা",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -11,8 +11,23 @@
   "lang": "bn",
   "dir": "ltr",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>জারা মাঠ — ইলেকট্রিক বাজার ব্যবস্থাপনা</title>
-<meta name="description" content="জারা ইলেকট্রিক ও ইলেকট্রনিক্স — নির্মাণাধীন বাড়ি, মিস্ত্রি ও পাইকারি ক্রেতার মাঠ ব্যবস্থাপনা">
+<title>জারা ইলেকট্রিক CRM</title>
+<meta name="description" content="JARA ELECTRIC CRM — নির্মাণাধীন বাড়ি, মিস্ত্রি ও পাইকারি ক্রেতার মাঠ ব্যবস্থাপনা">
 <meta name="theme-color" content="#0B2545">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -19,7 +19,7 @@
 <header class="topbar" id="topbar" hidden>
   <button class="tb-back" id="btnBack" hidden aria-label="পেছনে">‹</button>
   <div class="tb-title">
-    <span class="tb-eyebrow">জারা ইলেকট্রিক ও ইলেকট্রনিক্স</span>
+    <span class="tb-eyebrow">জারা ইলেকট্রিক CRM</span>
     <h1 id="viewTitle">আজকের কাজ</h1>
   </div>
   <button class="tb-act" id="btnAdd" aria-label="নতুন কাস্টমার">＋</button>
@@ -38,6 +38,19 @@
 <div class="sheet-wrap" id="sheetWrap" hidden>
   <div class="sheet-bg" data-close></div>
   <div class="sheet" id="sheet" role="dialog" aria-modal="true"></div>
+</div>
+
+<div class="picker" id="picker" hidden>
+  <div class="picker-head">
+    <button class="x" id="pkCancel" aria-label="বাতিল">✕</button>
+    <div><b>বাড়ির জায়গায় চাপুন</b><small id="pkHint">ম্যাপ সরিয়ে বাড়িটা খুঁজুন, তারপর চাপ দিন</small></div>
+  </div>
+  <div id="pkMap"></div>
+  <div class="picker-foot">
+    <div class="pkread num" id="pkRead">কোনো পিন বসানো হয়নি</div>
+    <div class="btnrow"><button class="btn sec" id="pkHere">◎ আমার অবস্থান</button>
+    <button class="btn gold" id="pkOk">এখানেই পিন</button></div>
+  </div>
 </div>
 
 <div class="toast" id="toast" hidden></div>

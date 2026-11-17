@@ -118,6 +118,7 @@ function agoText(iso){
 }
 
 function phoneDigits(p){ return String(p || '').replace(/\D/g, ''); }
+function waOf(c){ return waNumber(c.waSame === false && c.whatsapp ? c.whatsapp : (c.whatsapp || c.phone)); }
 function waNumber(p){
   const n = phoneDigits(p);
   if (!n) return '';
@@ -227,6 +228,7 @@ const S = {
   view: 'today',
   q: '',
   filter: 'all',
+  period: 'week',
   here: null,          // current GPS, when granted
   map: null,
   layer: null,
@@ -370,7 +372,7 @@ function followRow(c){
   const kind = dueKind(c);
   const d = dueDate(c);
   const od = overdueDays(c);
-  const wa = waNumber(c.phone);
+  const wa = waOf(c);
 
   const when = od > 0
     ? '<span class="chip hot">' + bn(od) + ' দিন পার</span>'
@@ -612,15 +614,51 @@ function openRoute(){
 
 /* ══════════ ১০. পর্দা: রিপোর্ট ══════════ */
 
+const PERIODS = [['today','আজ',1],['week','৭ দিন',7],['month','৩০ দিন',30]];
+
+function inLast(iso, days){
+  if (!iso) return false;
+  const d = String(iso).slice(0, 10);
+  return d >= plusDays(-(days - 1)) && d <= todayISO();
+}
+
+function periodStats(days){
+  const s = { fresh: 0, touch: 0, tea: 0, won: 0, amount: 0, places: new Set() };
+  S.list.forEach(c => {
+    if (inLast(c.createdAt, days)){ s.fresh++; if (c.village) s.places.add(c.village); }
+    (c.events || []).forEach(e => {
+      if (!inLast(e.t, days)) return;
+      if (['visit','call','wa'].includes(e.type)) s.touch++;
+      if (e.type === 'tea') s.tea++;
+      if (e.type === 'won'){ s.won++; s.amount += Number(c.saleAmount) || 0; }
+    });
+  });
+  return s;
+}
+
 function viewReport(){
   const all = S.list;
+  const pk = S.period || 'week';
+  const days = (PERIODS.find(p => p[0] === pk) || PERIODS[1])[2];
+  const ps = periodStats(days);
+
+  let h0 = '<div class="filters">' + PERIODS.map(([k, l]) =>
+    '<button class="fchip' + (pk === k ? ' on' : '') + '" data-p="' + k + '">' + l + '</button>').join('') + '</div>';
+  h0 += '<div class="stats">' +
+    '<div class="stat"><div class="k">নতুন কাস্টমার</div><div class="v">' + bn(ps.fresh) + '</div></div>' +
+    '<div class="stat"><div class="k">যোগাযোগ হয়েছে</div><div class="v">' + bn(ps.touch) + '</div></div>' +
+    '<div class="stat"><div class="k">দোকানে এসেছেন</div><div class="v">' + bn(ps.tea) + '</div></div>' +
+    '<div class="stat"><div class="k">বিক্রি</div><div class="v">' + (ps.amount ? money(ps.amount) : bn(ps.won) + ' টি') + '</div></div>' +
+    '</div>';
+  if (ps.places.size)
+    h0 += '<p class="muted" style="margin:0 2px">' + bn(ps.places.size) + ' টি গ্রামে নতুন কাস্টমার উঠেছে।</p>';
   const won = all.filter(c => c.status === 'won');
   const lost = all.filter(c => c.status === 'lost');
   const closed = won.length + lost.length;
   const rate = closed ? Math.round(won.length / closed * 100) : 0;
   const sales = won.reduce((n, c) => n + (Number(c.saleAmount) || 0), 0);
 
-  let h = '<div class="stats">' +
+  let h = h0 + '<div class="sec-h"><h2>সব মিলিয়ে</h2></div><div class="stats">' +
     '<div class="stat"><div class="k">মোট রেকর্ড</div><div class="v">' + bn(all.length) + '</div></div>' +
     '<div class="stat"><div class="k">কাজ পেয়েছি</div><div class="v">' + bn(won.length) + '</div></div>' +
     '<div class="stat"><div class="k">হাতছাড়া</div><div class="v">' + bn(lost.length) + '</div></div>' +
@@ -727,12 +765,17 @@ function formHTML(c){
 
   '<label class="field"><span>ধরন</span><select id="f_type">' + opt(TYPES, v.type || TYPES[0]) + '</select></label>' +
 
-  '<div class="grid2">' +
-  '<label class="field"><span>মোবাইল <b class="req">*</b></span>' +
+  '<label class="field"><span>ব্যক্তিগত মোবাইল <b class="req">*</b></span>' +
   '<input id="f_phone" type="tel" inputmode="numeric" value="' + esc(v.phone || '') + '" placeholder="০১৭…" required></label>' +
+
+  '<div class="checkline"><input type="checkbox" id="f_wasame"' + (v.waSame === false ? '' : ' checked') + '>' +
+  '<span>WhatsApp নম্বরও এটাই</span></div>' +
+  '<label class="field" id="waWrap"' + (v.waSame === false ? '' : ' hidden') + '>' +
+  '<span>WhatsApp নম্বর</span>' +
+  '<input id="f_wa" type="tel" inputmode="numeric" value="' + esc(v.whatsapp || '') + '" placeholder="০১৮…"></label>' +
+
   '<label class="field"><span>গ্রাম / এলাকা</span>' +
   '<input id="f_village" value="' + esc(v.village || '') + '" placeholder="যেমন: জিগরা উত্তরপাড়া"></label>' +
-  '</div>' +
 
   '<label class="field"><span>ঠিকানার বর্ণনা</span>' +
   '<input id="f_address" value="' + esc(v.address || '') + '" placeholder="মন্ডল বাড়ি, মসজিদের পাশে"></label>' +
@@ -741,8 +784,11 @@ function formHTML(c){
   '<div class="field"><span>ম্যাপের পিন</span>' +
     '<div id="pinState" class="card" style="padding:11px;margin-bottom:8px">' + pinStateHTML(v) + '</div>' +
     '<div class="btnrow"><button type="button" class="btn sec" id="btnGps">◎ এখানেই আছি</button>' +
+    '<button type="button" class="btn sec" id="btnPickPin">◈ ম্যাপে বসাই</button></div>' +
+    '<div class="btnrow" style="margin-top:8px">' +
+    '<button type="button" class="btn sec" id="btnAddr">ঠিকানা বের করুন</button>' +
     '<button type="button" class="btn sec" id="btnClearPin">পিন মুছুন</button></div>' +
-    '<div class="hint">বিল্ডিংয়ের নিচে নেটওয়ার্ক না পেলে পিন না দিয়েই সেভ করুন। পরে “পিন বাকি” তালিকা থেকে নেটওয়ার্কে গিয়ে পিন করা যাবে।</div>' +
+    '<div class="hint">বিল্ডিংয়ের নিচে নেটওয়ার্ক না পেলে পিন না দিয়েই সেভ করুন। পরে “পিন বাকি” তালিকা থেকে নেটওয়ার্কে গিয়ে পিন করা যাবে। ম্যাপে বসালে GPS লাগে না — বাড়িটা দেখে আঙুল দিয়ে চাপলেই হবে।</div>' +
     '<input type="hidden" id="f_lat" value="' + (v.lat != null ? v.lat : '') + '">' +
     '<input type="hidden" id="f_lng" value="' + (v.lng != null ? v.lng : '') + '">' +
   '</div>' +
@@ -781,6 +827,8 @@ function formHTML(c){
   '<input id="f_next" type="date" value="' + esc(v.nextDate || (c ? '' : plusDays(7))) + '">' +
   '<span class="hint">তারিখ না দিলে ফলো-আপের তালিকায় উঠবে না।</span></label>' +
 
+  photoBlockHTML(v) +
+
   '<label class="field"><span>নোট</span>' +
   '<textarea id="f_notes" placeholder="যা মনে রাখা দরকার">' + esc(v.notes || '') + '</textarea></label>' +
 
@@ -796,7 +844,11 @@ function pinStateHTML(v){
          '</span><br><span class="muted">দোকান থেকে ' + distText(km) + '</span>';
 }
 
+let FORMREC = null;
+
 function openForm(c){
+  FORMREC = c || { photos: [] };
+  if (!FORMREC.photos) FORMREC.photos = [];
   openSheet(c ? 'তথ্য সম্পাদনা' : 'নতুন কাস্টমার', formHTML(c),
     '<button class="btn gold block" id="saveC">সংরক্ষণ করুন</button>');
 
@@ -805,7 +857,31 @@ function openForm(c){
     $('#cblock').hidden = typeSel.value !== TYPES[0];
   });
 
+  paintPhotos(FORMREC);
+  $('#f_photo').addEventListener('change', async e => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+    if (!$('#f_consent').checked){ toast('আগে অনুমতির ঘরে টিক দিন'); return; }
+    toast('ছবি যোগ হচ্ছে…');
+    for (const f of files){
+      try{
+        const b = await shrink(f);
+        const key = 'ph' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        await photoPut(key, b);
+        FORMREC.photos.push(key);
+      }catch(err){ toast('একটা ছবি নেওয়া গেল না'); }
+    }
+    await paintPhotos(FORMREC);
+  });
+
+  const waSame = $('#f_wasame');
+  waSame.addEventListener('change', () => { $('#waWrap').hidden = waSame.checked; });
+
   $('#btnGps').addEventListener('click', grabGps);
+  $('#btnPickPin').addEventListener('click', () => openPinPicker(c));
+  const addr = $('#btnAddr');
+  if (addr) addr.addEventListener('click', lookupAddress);
   $('#btnClearPin').addEventListener('click', () => {
     $('#f_lat').value = ''; $('#f_lng').value = '';
     $('#pinState').innerHTML = pinStateHTML({});
@@ -831,6 +907,195 @@ function grabGps(){
     if (st) st.innerHTML = '<span class="chip idle">পিন নেই</span> <span class="muted">' +
       (err.code === 1 ? 'লোকেশনের অনুমতি দেওয়া হয়নি' : 'লোকেশন পাওয়া যায়নি — নেটওয়ার্ক আছে এমন জায়গায় আবার চেষ্টা করুন') + '</span>';
   }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+}
+
+/* ══════════ ১১ক. বাড়ির ছবি ══════════
+   ছবি ফোনের ভেতরের IndexedDB-তে থাকে, কাস্টমারের রেকর্ডে শুধু আইডি।
+   ক্লাউড চালু হলে একই আইডি দিয়ে Supabase Storage-এ তোলা হবে। */
+
+let IDB = null;
+function idb(){
+  if (IDB) return IDB;
+  IDB = new Promise((res, rej) => {
+    const r = indexedDB.open('jara-photos', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('p');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+  return IDB;
+}
+async function photoPut(key, blob){
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('p', 'readwrite');
+    tx.objectStore('p').put(blob, key);
+    tx.oncomplete = () => res(key); tx.onerror = () => rej(tx.error);
+  });
+}
+async function photoGet(key){
+  const db = await idb();
+  return new Promise(res => {
+    const tx = db.transaction('p', 'readonly');
+    const q = tx.objectStore('p').get(key);
+    q.onsuccess = () => res(q.result || null); q.onerror = () => res(null);
+  });
+}
+async function photoDel(key){
+  const db = await idb();
+  return new Promise(res => {
+    const tx = db.transaction('p', 'readwrite');
+    tx.objectStore('p').delete(key); tx.oncomplete = () => res();
+  });
+}
+
+/* বড় ছবি ছোট করে নেওয়া — ফোনের জায়গা বাঁচাতে */
+function shrink(file, max = 1280, q = 0.68){
+  return new Promise((res, rej) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const s = Math.min(1, max / Math.max(img.width, img.height));
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(img.width * s); cv.height = Math.round(img.height * s);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      cv.toBlob(b => b ? res(b) : rej(new Error('ছবি তৈরি হয়নি')), 'image/jpeg', q);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('ছবি পড়া গেল না')); };
+    img.src = url;
+  });
+}
+
+async function paintPhotos(rec){
+  const box = $('#photoList');
+  if (!box) return;
+  const ids = rec.photos || [];
+  if (!ids.length){ box.innerHTML = '<p class="muted" style="margin:0">এখনো কোনো ছবি নেই।</p>'; return; }
+  box.innerHTML = '';
+  for (const id of ids){
+    const b = await photoGet(id);
+    const cell = document.createElement('div');
+    cell.className = 'pcell';
+    if (b){
+      const im = document.createElement('img');
+      im.src = URL.createObjectURL(b); im.alt = 'বাড়ির ছবি';
+      cell.appendChild(im);
+    } else {
+      cell.innerHTML = '<span class="muted" style="font-size:11px">ছবি পাওয়া যায়নি</span>';
+    }
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'pdel'; del.textContent = '✕';
+    del.setAttribute('aria-label', 'ছবি মুছুন');
+    del.onclick = async () => {
+      rec.photos = (rec.photos || []).filter(x => x !== id);
+      await photoDel(id); await paintPhotos(rec);
+      if (rec.id && byId(rec.id)) await persist();
+    };
+    cell.appendChild(del);
+    box.appendChild(cell);
+  }
+}
+
+function photoBlockHTML(v){
+  return '<div class="field"><span>বাড়ির ছবি</span>' +
+    '<div class="warnbox" style="margin-bottom:9px"><b>আগে অনুমতি নিন</b>' +
+    'বাড়ির মালিকের অনুমতি ছাড়া ছবি তুলবেন না। মানুষের ছবি তোলা যাবে না — শুধু বাইরে থেকে বাড়ির ছবি, ' +
+    'যাতে পরে জায়গাটা খুঁজে পাওয়া যায়।</div>' +
+    '<div class="checkline"><input type="checkbox" id="f_consent"' + (v.consent ? ' checked' : '') + '>' +
+    '<span>মালিক ছবি তোলার অনুমতি দিয়েছেন</span></div>' +
+    '<div class="plist2" id="photoList"></div>' +
+    '<label class="btn sec block" style="margin-top:9px">📷 বাড়ির ছবি যোগ করুন' +
+    '<input type="file" id="f_photo" accept="image/*" capture="environment" multiple hidden></label>' +
+    '<div class="hint">ছবি এখন এই ফোনেই থাকে। ক্লাউড চালু হলে সব ফোনে দেখা যাবে।</div></div>';
+}
+
+/* ── ম্যাপে আঙুল দিয়ে পিন বসানো (GPS ছাড়াই চলে) ── */
+let PK = { map: null, marker: null, lat: null, lng: null };
+
+function openPinPicker(){
+  const wrap = $('#picker');
+  wrap.hidden = false;
+  document.body.style.overflow = 'hidden';
+
+  const cur = { lat: parseFloat($('#f_lat').value), lng: parseFloat($('#f_lng').value) };
+  const start = !isNaN(cur.lat)
+    ? [cur.lat, cur.lng]
+    : (S.here ? [S.here.lat, S.here.lng] : [S.settings.shopLat, S.settings.shopLng]);
+
+  if (PK.map){ PK.map.remove(); PK.map = null; PK.marker = null; }
+  PK.lat = PK.lng = null;
+  $('#pkRead').textContent = 'কোনো পিন বসানো হয়নি';
+
+  PK.map = L.map('pkMap', { zoomControl: true }).setView(start, !isNaN(cur.lat) ? 18 : 16);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(PK.map);
+
+  // দোকানটা দেখা যাক, যাতে দিক বোঝা যায়
+  L.marker([S.settings.shopLat, S.settings.shopLng], {
+    icon: L.divIcon({ className: '', html: '<div class="pinmark" style="background:#0B2545"></div>',
+      iconSize: [26, 26], iconAnchor: [13, 24] })
+  }).addTo(PK.map).bindPopup('আপনার দোকান');
+
+  const place = (lat, lng) => {
+    PK.lat = +lat.toFixed(6); PK.lng = +lng.toFixed(6);
+    if (PK.marker) PK.marker.setLatLng([lat, lng]);
+    else PK.marker = L.marker([lat, lng], { draggable: true,
+      icon: L.divIcon({ className: '', html: '<div class="pinmark" style="background:#C62828"></div>',
+        iconSize: [26, 26], iconAnchor: [13, 24] }) }).addTo(PK.map)
+      .on('dragend', e => { const p = e.target.getLatLng(); place(p.lat, p.lng); });
+    const km = distKm(S.settings.shopLat, S.settings.shopLng, PK.lat, PK.lng);
+    $('#pkRead').textContent = PK.lat.toFixed(5) + ', ' + PK.lng.toFixed(5) + ' · দোকান থেকে ' + distText(km);
+  };
+
+  if (!isNaN(cur.lat)) place(cur.lat, cur.lng);
+  PK.map.on('click', e => place(e.latlng.lat, e.latlng.lng));
+  setTimeout(() => PK.map && PK.map.invalidateSize(), 150);
+
+  $('#pkHere').onclick = () => {
+    if (!navigator.geolocation){ toast('লোকেশন সুবিধা নেই'); return; }
+    $('#pkHint').textContent = 'অবস্থান নেওয়া হচ্ছে…';
+    navigator.geolocation.getCurrentPosition(p => {
+      S.here = { lat: p.coords.latitude, lng: p.coords.longitude };
+      PK.map.setView([p.coords.latitude, p.coords.longitude], 18);
+      place(p.coords.latitude, p.coords.longitude);
+      $('#pkHint').textContent = 'দরকার হলে সরিয়ে ঠিক জায়গায় বসান';
+    }, () => { $('#pkHint').textContent = 'অবস্থান পাওয়া যায়নি — হাতে বসান'; },
+       { enableHighAccuracy: true, timeout: 15000 });
+  };
+  $('#pkCancel').onclick = closePinPicker;
+  $('#pkOk').onclick = () => {
+    if (PK.lat == null){ toast('আগে ম্যাপে চাপ দিয়ে পিন বসান'); return; }
+    $('#f_lat').value = PK.lat; $('#f_lng').value = PK.lng;
+    $('#pinState').innerHTML = pinStateHTML({ lat: PK.lat, lng: PK.lng });
+    closePinPicker(); toast('পিন বসানো হয়েছে');
+  };
+}
+function closePinPicker(){
+  $('#picker').hidden = true;
+  document.body.style.overflow = 'hidden'; // ফর্মের শিট এখনো খোলা
+  if (PK.map){ PK.map.remove(); PK.map = null; PK.marker = null; }
+}
+
+/* ── পিন থেকে ঠিকানা ── */
+async function lookupAddress(){
+  const lat = parseFloat($('#f_lat').value), lng = parseFloat($('#f_lng').value);
+  if (isNaN(lat)){ toast('আগে পিন বসান'); return; }
+  const st = $('#pinState');
+  const keep = st.innerHTML;
+  st.innerHTML = '<span class="muted">ঠিকানা খোঁজা হচ্ছে…</span>';
+  try{
+    const r = await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&accept-language=bn&lat=' + lat + '&lon=' + lng);
+    const j = await r.json();
+    const a = j && j.display_name ? j.display_name : '';
+    st.innerHTML = keep;
+    if (!a){ toast('এই জায়গার ঠিকানা ম্যাপে লেখা নেই'); return; }
+    const box = $('#f_address');
+    box.value = box.value ? box.value + ' — ' + a : a;
+    toast('ঠিকানা বসানো হয়েছে — দেখে ঠিক করে নিন');
+  }catch(e){
+    st.innerHTML = keep;
+    toast('ঠিকানা আনা গেল না');
+  }
 }
 
 function dupCheck(cur){
@@ -869,13 +1134,16 @@ async function saveForm(c){
   rec.name = name;
   rec.type = type;
   rec.phone = phone;
-  rec.whatsapp = phone;
+  rec.waSame = $('#f_wasame').checked;
+  rec.whatsapp = rec.waSame ? phone : ($('#f_wa').value.trim() || phone);
   rec.village = $('#f_village').value.trim();
   rec.address = $('#f_address').value.trim();
   rec.lat = isNaN(lat) ? null : lat;
   rec.lng = isNaN(lng) ? null : lng;
   rec.supplierName = $('#f_supplier').value.trim();
   rec.supplierShop = $('#f_supshop').value.trim();
+  rec.consent  = $('#f_consent').checked;
+  rec.photos   = (FORMREC && FORMREC.photos) ? FORMREC.photos.slice() : (rec.photos || []);
   rec.teaStatus = $('#f_teastat').value;
   rec.teaDate = $('#f_tea').value || '';
   rec.nextDate = $('#f_next').value || '';
@@ -924,7 +1192,7 @@ function openDetail(id){
   const c = byId(id); if (!c) return;
   const sc = score(c), b = band(sc);
   const km = distKm(S.settings.shopLat, S.settings.shopLng, c.lat, c.lng);
-  const wa = waNumber(c.phone);
+  const wa = waOf(c);
 
   const kv = (k, v) => v ? '<div class="kv"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>' : '';
 
@@ -947,6 +1215,8 @@ function openDetail(id){
 
   body += '<div class="card">' +
     kv('মোবাইল', '<span class="num">' + esc(c.phone) + '</span>') +
+    (c.waSame === false && c.whatsapp && c.whatsapp !== c.phone
+      ? kv('WhatsApp', '<span class="num">' + esc(c.whatsapp) + '</span>') : '') +
     kv('ঠিকানা', esc(c.address)) +
     kv('কয় তলা', c.floors ? bn(c.floors) + ' তলা' : '') +
     kv('নির্মাণের অবস্থা', esc(c.stage)) +
@@ -981,6 +1251,12 @@ function openDetail(id){
     body += '<button class="btn sec block" id="mReopen">আবার চালু করুন</button>';
   }
 
+  if ((c.photos || []).length){
+    body += '<div class="sec-h" style="margin-top:16px"><h2>বাড়ির ছবি</h2>' +
+            '<span class="more">' + bn(c.photos.length) + ' টি</span></div>' +
+            '<div class="card"><div class="plist2" id="detPhotos"></div></div>';
+  }
+
   const ev = c.events || [];
   body += '<div class="sec-h" style="margin-top:16px"><h2>ইতিহাস</h2><span class="more">' + bn(ev.length) + ' টি</span></div>' +
     '<div class="card">' + (ev.length ? '<div class="tl">' + ev.slice(0, 40).map(e =>
@@ -993,6 +1269,7 @@ function openDetail(id){
     '<div class="btnrow"><button class="btn sec" data-close>বন্ধ</button>' +
     '<button class="btn pri" id="editC">সম্পাদনা</button></div>');
 
+  if ((c.photos || []).length) paintDetailPhotos(c);
   $('#editC').addEventListener('click', () => { closeSheet(); setTimeout(() => openForm(c), 60); });
   const pn = $('#pinNow');
   if (pn) pn.addEventListener('click', () => { closeSheet(); setTimeout(() => openForm(c), 60); });
@@ -1010,6 +1287,23 @@ function openDetail(id){
 }
 
 
+
+async function paintDetailPhotos(c){
+  const box = $('#detPhotos');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const id of c.photos){
+    const b = await photoGet(id);
+    const cell = document.createElement('div');
+    cell.className = 'pcell';
+    if (b){
+      const im = document.createElement('img');
+      im.src = URL.createObjectURL(b); im.alt = 'বাড়ির ছবি';
+      cell.appendChild(im);
+    } else cell.innerHTML = '<span class="muted" style="font-size:11px">এই ফোনে নেই</span>';
+    box.appendChild(cell);
+  }
+}
 
 function logAction(c, preset){
   const method = preset && METHODS.some(m => m[0] === preset) ? preset : 'call';
@@ -1194,18 +1488,58 @@ function exportJson(){
 
 function importJson(file){
   const r = new FileReader();
-  r.onload = async () => {
+  r.onload = () => {
+    let d;
     try{
-      const d = JSON.parse(r.result);
+      d = JSON.parse(r.result);
       if (!d || !Array.isArray(d.customers)) throw new Error('ভুল ফাইল');
-      const have = new Set(S.list.map(x => x.id));
-      let added = 0;
-      d.customers.forEach(x => { if (x && x.id && !have.has(x.id)){ S.list.push(x); added++; } });
-      if (d.settings) S.settings = Object.assign({}, S.settings, d.settings);
-      await persist(); await Store.setSettings(S.settings);
-      closeSheet(); render();
-      toast(bn(added) + ' টি নতুন রেকর্ড যোগ হয়েছে');
-    }catch(e){ toast('ফাইলটি পড়া গেল না'); }
+    }catch(e){ toast('ফাইলটি পড়া গেল না — এটা কি জারা CRM-এর ব্যাকআপ?'); return; }
+
+    const mine = new Map(S.list.map(x => [x.id, x]));
+    const fresh = [], newer = [], older = [], broken = [];
+    d.customers.forEach(x => {
+      if (!x || !x.id || !x.name){ broken.push(x); return; }
+      const cur = mine.get(x.id);
+      if (!cur) fresh.push(x);
+      else if ((x.updatedAt || '') > (cur.updatedAt || '')) newer.push(x);
+      else older.push(x);
+    });
+
+    const line = (n, label, note) => n
+      ? '<div class="rrow"><span>' + label + (note ? '<br><small class="muted">' + note + '</small>' : '') +
+        '</span><span class="rn">' + bn(n) + '</span></div>' : '';
+
+    openSheet('ফেরানোর আগে দেখে নিন',
+      '<p style="margin-top:0" class="muted">ফাইলের তারিখ: ' + banglaDate(d.at || '') +
+      ' · মোট ' + bn(d.customers.length) + ' টি রেকর্ড</p>' +
+      '<div class="card">' +
+        line(fresh.length, 'নতুন — যোগ হবে') +
+        line(newer.length, 'ফাইলের তথ্য নতুন — বদলে যাবে', 'ফাইলেরটা পরে বদলানো হয়েছে') +
+        line(older.length, 'এখানকার তথ্যই নতুন — হাত দেওয়া হবে না', 'আপনার বর্তমান রেকর্ড অক্ষত থাকবে') +
+        line(broken.length, 'পড়া গেল না — বাদ যাবে') +
+      '</div>' +
+      (newer.length ? '<div class="warnbox" style="margin-top:12px"><b>' + bn(newer.length) +
+        ' টি রেকর্ড বদলে যাবে</b>ওগুলোর বর্তমান তথ্য ফাইলের তথ্য দিয়ে ঢেকে যাবে।</div>' : '') +
+      '<div class="checkline"><input type="checkbox" id="imSet"' + (d.settings ? '' : ' disabled') + '>' +
+      '<span>সেটিংসও ফেরাব (দোকানের অবস্থান, নাম)</span></div>' +
+      '<div class="hint">কোনো রেকর্ড মুছে যাবে না। যা এখানে আছে অথচ ফাইলে নেই, সেটা যেমন আছে তেমনই থাকবে।</div>',
+
+      '<div class="btnrow"><button class="btn sec" data-close>থাক</button>' +
+      '<button class="btn gold" id="imGo">ফেরান</button></div>');
+
+    $('#imGo').addEventListener('click', async () => {
+      fresh.forEach(x => S.list.push(x));
+      newer.forEach(x => {
+        const i = S.list.findIndex(y => y.id === x.id);
+        if (i >= 0) S.list[i] = x;
+      });
+      if ($('#imSet').checked && d.settings){
+        S.settings = Object.assign({}, S.settings, d.settings);
+        await Store.setSettings(S.settings);
+      }
+      await persist(); closeSheet(); render();
+      toast(bn(fresh.length) + ' টি নতুন, ' + bn(newer.length) + ' টি হালনাগাদ হয়েছে');
+    });
   };
   r.readAsText(file);
 }
@@ -1291,6 +1625,10 @@ function wireView(){
 
   main.querySelectorAll('[data-f]').forEach(el => el.addEventListener('click', () => {
     S.filter = el.dataset.f; render();
+  }));
+
+  main.querySelectorAll('[data-p]').forEach(el => el.addEventListener('click', () => {
+    S.period = el.dataset.p; render();
   }));
 
   main.querySelectorAll('.rsel').forEach(el => el.addEventListener('change', () => {
