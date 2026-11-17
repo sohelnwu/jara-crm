@@ -69,6 +69,19 @@ const UNIONS = [
   'উপজেলার বাইরে',
 ];
 
+/* বাংলা বানানভেদ মিলিয়ে খোঁজা — ী/ি, ণ/ন, শ/স/ষ, ড়/র সব এক ধরা হয় */
+function fold(x){
+  let t = String(x || '').normalize('NFC');
+  // বাংলায় ড়/ঢ়/য় NFC-তে নুক্তা আলাদা থাকে — দুই চেহারাই এক করে নিই
+  t = t.replace(/\u09A1\u09BC|\u09DC/g, '\u09B0')   // ড় → র
+       .replace(/\u09A2\u09BC|\u09DD/g, '\u09B0')   // ঢ় → র
+       .replace(/\u09AF\u09BC|\u09DF/g, '\u09AF')   // য় → য
+       .replace(/\u09BC/g, '');                        // বাকি নুক্তা
+  const map = { 'ী':'ি','ূ':'ু','ণ':'ন','ষ':'স','শ':'স','ঁ':'','্':'' };
+  t = t.replace(/[ীূণষশঁ্]/g, c => map[c]);
+  return t.replace(/\s+/g, '');
+}
+
 /* আগে যত গ্রাম/পাড়া লেখা হয়েছে সেগুলোই পরের বার তালিকায় আসে */
 function learned(field, union){
   const set = new Set();
@@ -585,7 +598,7 @@ function filtered(){
     if (S.filter === 'nopin' && c.lat != null)       return false;
     if (!['all','won','lost','nopin'].includes(S.filter) && c.type !== S.filter) return false;
     if (!q) return true;
-    return [c.name, c.phone, c.village, c.para, c.union, c.address, c.type, c.supplierName, c.notes]
+    return [c.name, c.phone, c.village, c.para, c.union, c.landmark, c.address, c.type, c.supplierName, c.notes]
       .concat(' ', c.union || '', ' ', c.para || '').join(' ').toLowerCase().includes(q);
   });
 }
@@ -914,16 +927,23 @@ function formHTML(c){
   '</select></label>' +
 
   '<div class="grid2">' +
-  '<label class="field"><span>গ্রাম</span>' +
-  '<input id="f_village" list="dlVillage" autocomplete="off" value="' + esc(v.village || '') + '" placeholder="যেমন: বেতবাড়ী"></label>' +
-  '<label class="field"><span>পাড়া / মহল্লা</span>' +
-  '<input id="f_para" list="dlPara" autocomplete="off" value="' + esc(v.para || '') + '" placeholder="যেমন: উত্তরপাড়া"></label>' +
+  '<div class="field"><span>গ্রাম</span>' +
+  '<button type="button" class="pickbtn" id="f_village_b"><span id="f_village_t">' +
+    (v.village ? esc(v.village) : '<i>বেছে নিন</i>') + '</span><em>খুঁজুন ▸</em></button>' +
+  '<input type="hidden" id="f_village" value="' + esc(v.village || '') + '"></div>' +
+  '<div class="field"><span>পাড়া / মহল্লা</span>' +
+  '<button type="button" class="pickbtn" id="f_para_b"><span id="f_para_t">' +
+    (v.para ? esc(v.para) : '<i>বেছে নিন</i>') + '</span><em>খুঁজুন ▸</em></button>' +
+  '<input type="hidden" id="f_para" value="' + esc(v.para || '') + '"></div>' +
   '</div>' +
-  '<div id="dlBox"></div>' +
-  '<div class="hint" style="margin-top:-6px;margin-bottom:14px">একবার যে গ্রাম বা পাড়ার নাম লিখবেন, পরের বার সেটা তালিকায় চলে আসবে — আর টাইপ করতে হবে না।</div>' +
+  '<div class="hint" style="margin-top:-6px;margin-bottom:14px">উল্লাপাড়ার ' + bn(VILLAGES.length) +
+  'টি গ্রামের নাম তালিকায় আছে — নাম লিখে খুঁজুন। না পেলে নিজে লিখে দিন, পরের বার তালিকাতেই পাবেন।</div>' +
+
+  '<label class="field"><span>কিসের পাশে — মসজিদ, স্কুল, বাজার, মোড়</span>' +
+  '<input id="f_landmark" value="' + esc(v.landmark || '') + '" placeholder="যেমন: জামে মসজিদের পূর্ব পাশে"></label>' +
 
   '<label class="field"><span>বাড়ি চেনার মতো কিছু</span>' +
-  '<input id="f_address" value="' + esc(v.address || '') + '" placeholder="মন্ডল বাড়ি, মসজিদের পাশে, তিনতলা লাল বিল্ডিং"></label>' +
+  '<input id="f_address" value="' + esc(v.address || '') + '" placeholder="মন্ডল বাড়ি, তিনতলা লাল বিল্ডিং, গেটে নীল দরজা"></label>' +
 
   /* ---- location ---- */
   '<div class="field"><span>ম্যাপের পিন</span>' +
@@ -1012,14 +1032,26 @@ function openForm(c){
   });
 
   const unionSel = $('#f_union');
-  const refreshLists = () => {
-    $('#dlBox').innerHTML =
-      dataListHTML('dlVillage', learned('village', unionSel.value)) +
-      dataListHTML('dlPara', learned('para', unionSel.value));
+  const setPick = (key, val) => {
+    $('#f_' + key).value = val;
+    $('#f_' + key + '_t').innerHTML = val ? esc(val) : '<i>বেছে নিন</i>';
   };
-  refreshLists();
-  unionSel.addEventListener('change', refreshLists);
-  $('#f_village').addEventListener('change', refreshLists);
+  $('#f_village_b').addEventListener('click', () => openPicker({
+    title: 'গ্রাম বাছুন',
+    sub: unionSel.value ? unionSel.value + ' — আগে নেওয়া নামগুলো উপরে' : 'নাম লিখে খুঁজুন',
+    used: learned('village', unionSel.value),
+    all: VILLAGES,
+    usedLabel: unionSel.value ? 'এই ইউনিয়নে আগে নেওয়া' : 'আগে নেওয়া',
+    onPick: v2 => setPick('village', v2),
+  }));
+  $('#f_para_b').addEventListener('click', () => openPicker({
+    title: 'পাড়া / মহল্লা',
+    sub: ($('#f_village').value || 'গ্রাম') + ' — আগে লেখা নামগুলো',
+    used: learned('para', unionSel.value),
+    all: [],
+    usedLabel: 'আগে লেখা পাড়া',
+    onPick: v2 => setPick('para', v2),
+  }));
 
   paintPhotos(FORMREC);
   $('#f_photo').addEventListener('change', async e => {
@@ -1183,6 +1215,50 @@ function photoBlockHTML(v){
     '<div class="hint">ছবি এখন এই ফোনেই থাকে। ক্লাউড চালু হলে সব ফোনে দেখা যাবে।</div></div>';
 }
 
+/* ══════════ ১১খ. গ্রাম / পাড়া বাছাই ══════════ */
+
+let VP = { target: null, onPick: null };
+
+function openPicker(opts){
+  VP = opts;
+  $('#vpTitle').textContent = opts.title;
+  $('#vpSub').textContent   = opts.sub || 'নাম লিখে খুঁজুন';
+  $('#vpQ').value = '';
+  $('#vpick').hidden = false;
+  paintPicker('');
+  setTimeout(() => $('#vpQ').focus(), 150);
+}
+function closePicker(){ $('#vpick').hidden = true; VP = { target: null, onPick: null }; }
+
+function paintPicker(q){
+  const box = $('#vpList');
+  const f = fold(q);
+  const match = arr => f ? arr.filter(v => fold(v).includes(f)) : arr;
+
+  const used = match(VP.used || []);
+  const all  = match(VP.all || []).filter(v => !(VP.used || []).includes(v));
+  const cap  = 60;
+
+  let h = '';
+  if (used.length)
+    h += '<div class="vp-h">' + (VP.usedLabel || 'আগে ব্যবহার করা') + '</div>' +
+         used.slice(0, cap).map(v => '<button class="vp-i on" data-v="' + esc(v) + '">' +
+           esc(v) + '<span class="chip cool">আগে নেওয়া</span></button>').join('');
+  if (all.length)
+    h += '<div class="vp-h">' + (VP.allLabel || 'উল্লাপাড়ার গ্রাম') +
+         ' <span class="muted">(' + bn(all.length) + ')</span></div>' +
+         all.slice(0, cap).map(v => '<button class="vp-i" data-v="' + esc(v) + '">' + esc(v) + '</button>').join('') +
+         (all.length > cap ? '<div class="vp-more">আরও ' + bn(all.length - cap) +
+            ' টি আছে — নাম লিখে খুঁজুন</div>' : '');
+  if (!used.length && !all.length)
+    h = '<div class="empty"><strong>এই নামে কিছু নেই</strong>' +
+        'নিচের বাটনে চেপে নিজে লিখে দিন — পরের বার তালিকাতেই পাবেন।</div>';
+
+  box.innerHTML = h;
+  box.querySelectorAll('[data-v]').forEach(b =>
+    b.addEventListener('click', () => { VP.onPick(b.dataset.v); closePicker(); }));
+}
+
 /* ── ম্যাপে আঙুল দিয়ে পিন বসানো (GPS ছাড়াই চলে) ── */
 let PK = { map: null, marker: null, lat: null, lng: null };
 
@@ -1313,6 +1389,7 @@ async function saveForm(c){
   rec.union   = $('#f_union').value;
   rec.village = $('#f_village').value.trim();
   rec.para    = $('#f_para').value.trim();
+  rec.landmark = $('#f_landmark').value.trim();
   rec.address = $('#f_address').value.trim();
   rec.lat = isNaN(lat) ? null : lat;
   rec.lng = isNaN(lng) ? null : lng;
@@ -1395,6 +1472,7 @@ function openDetail(id){
     (c.waSame === false && c.whatsapp && c.whatsapp !== c.phone
       ? kv('WhatsApp', '<span class="num">' + esc(c.whatsapp) + '</span>') : '') +
     kv('এলাকা', esc(placeText(c, true))) +
+    kv('কিসের পাশে', esc(c.landmark)) +
     kv('বাড়ি চেনার মতো', esc(c.address)) +
     kv('কয় তলা', c.floors ? bn(c.floors) + ' তলা' : '') +
     kv('নির্মাণের অবস্থা', esc(c.stage)) +
@@ -1969,7 +2047,7 @@ function exportXlsx(){
     'আইডি': c.id,
     'নাম': c.name || '', 'ধরন': c.type || '', 'মোবাইল': c.phone || '',
     'WhatsApp': c.waSame === false ? (c.whatsapp || '') : '',
-    'ইউনিয়ন': c.union || '', 'গ্রাম': c.village || '', 'পাড়া': c.para || '', 'ঠিকানা': c.address || '',
+    'ইউনিয়ন': c.union || '', 'গ্রাম': c.village || '', 'পাড়া': c.para || '', 'কিসের পাশে': c.landmark || '', 'ঠিকানা': c.address || '',
     'তলা': c.floors || '', 'নির্মাণের অবস্থা': c.stage || '',
     'ইলেকট্রিক কাজ': c.elecStatus || '', 'মাল লাগবে': NEED_LABEL[String(c.needDays || '')] || '',
     'এখন মাল নেয়': c.supplierName || '', 'সেই দোকান': c.supplierShop || '',
@@ -2018,6 +2096,7 @@ function rowToCustomer(r, existing){
   c.union   = cell(r, 'ইউনিয়ন');
   c.village = cell(r, 'গ্রাম');
   c.para    = cell(r, 'পাড়া');
+  c.landmark = cell(r, 'কিসের পাশে');
   c.address = cell(r, 'ঠিকানা');
   const fl = cell(r, 'তলা'); if (fl) c.floors = fl;
   if (cell(r, 'নির্মাণের অবস্থা')) c.stage = cell(r, 'নির্মাণের অবস্থা');
@@ -2254,9 +2333,18 @@ function wireSync(){
 document.addEventListener('click', e => {
   if (e.target.closest('[data-close]')) closeSheet();
 });
+$('#vpCancel').addEventListener('click', closePicker);
+$('#vpQ').addEventListener('input', e => paintPicker(e.target.value));
+$('#vpOwn').addEventListener('click', () => {
+  const typed = $('#vpQ').value.trim();
+  if (!typed){ toast('উপরে নামটা লিখুন, তারপর এই বাটনে চাপুন'); $('#vpQ').focus(); return; }
+  VP.onPick(typed); closePicker();
+});
+
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  if (!$('#picker').hidden) closePinPicker();
+  if (!$('#vpick').hidden) closePicker();
+  else if (!$('#picker').hidden) closePinPicker();
   else if (!$('#sheetWrap').hidden) closeSheet();
 });
 

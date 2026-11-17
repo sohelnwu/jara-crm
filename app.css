@@ -363,3 +363,29 @@ main.flush{padding-left:0;padding-right:0}
 .sbody{flex:1;min-width:0}
 .sbody b{display:block;font-size:15px}
 .sbody small{display:block;color:var(--fg-3);font-size:11.5px;margin-top:2px}
+
+/* ── গ্রাম/পাড়া বাছাই ───────────────────── */
+.pickbtn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:11px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);
+  background:var(--surface);font-size:15px;text-align:left;min-width:0}
+.pickbtn>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pickbtn>span i{color:var(--fg-3);font-style:normal}
+.pickbtn>em{flex:0 0 auto;font-style:normal;font-size:11.5px;color:var(--gold-dk);font-weight:600}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .pickbtn>em{color:var(--gold)}}
+:root[data-theme="dark"] .pickbtn>em{color:var(--gold)}
+
+.vp-search{flex:0 0 auto;background:var(--surface);border-bottom:1px solid var(--line);
+  padding:10px max(14px,env(safe-area-inset-right,0px)) 10px max(14px,env(safe-area-inset-left,0px))}
+.vp-search input{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:var(--radius-sm);
+  background:var(--surface-2);outline:0;font-size:16px}
+.vp-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;background:var(--bg)}
+.vp-h{position:sticky;top:0;background:var(--bg);padding:11px max(14px,env(safe-area-inset-left,0px)) 6px;
+  font-size:11.5px;font-weight:700;color:var(--fg-3);letter-spacing:.03em;z-index:1}
+.vp-i{width:100%;display:flex;align-items:center;justify-content:space-between;gap:9px;
+  padding:13px max(14px,env(safe-area-inset-right,0px)) 13px max(14px,env(safe-area-inset-left,0px));
+  background:var(--surface);border-bottom:1px solid var(--line-soft);text-align:left;font-size:15px}
+.vp-i:active{background:var(--surface-2)}
+.vp-i.on{background:var(--cream)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .vp-i.on{background:var(--surface-2)}}
+:root[data-theme="dark"] .vp-i.on{background:var(--surface-2)}
+.vp-more{padding:14px;text-align:center;color:var(--fg-3);font-size:12px}

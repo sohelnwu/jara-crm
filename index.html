@@ -55,6 +55,18 @@
   </form>
 </div>
 
+<div class="picker" id="vpick" hidden>
+  <div class="picker-head">
+    <button class="x" id="vpCancel" aria-label="বাতিল">✕</button>
+    <div><b id="vpTitle">গ্রাম বাছুন</b><small id="vpSub">নাম লিখে খুঁজুন</small></div>
+  </div>
+  <div class="vp-search"><input id="vpQ" type="search" placeholder="নাম লিখুন…" autocomplete="off"></div>
+  <div id="vpList" class="vp-list"></div>
+  <div class="picker-foot">
+    <button class="btn gold block" id="vpOwn">তালিকায় নেই — নিজে লিখব</button>
+  </div>
+</div>
+
 <div class="picker" id="picker" hidden>
   <div class="picker-head">
     <button class="x" id="pkCancel" aria-label="বাতিল">✕</button>
@@ -72,6 +84,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="villages.js"></script>
 <script src="store.js"></script>
 <script src="app.js"></script>
 </body>

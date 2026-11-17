@@ -53,38 +53,9 @@ const LocalStore = {
   async setSettings(s){ return lsSet(SET_KEY, s); },
   async putPhoto(){ return null; },     // ছবি IndexedDB-তে, app.js সামলায়
   async photoUrl(){ return null; },
-  /* মালিক অ্যাপের ভেতর থেকেই কর্মীর অ্যাকাউন্ট খুলতে পারবেন।
-     আলাদা ক্লায়েন্ট ব্যবহার করা হয় যাতে মালিকের নিজের লগইন কেটে না যায়। */
-  async createStaff(name, email, password){
-    const { createClient } = await import(
-      'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.4/+esm'
-    );
-    const tmp = createClient(CONFIG.supabase.url, CONFIG.supabase.key, {
-      auth: { persistSession: false, autoRefreshToken: false, storageKey: 'jara.tmp' },
-    });
-    const { data, error } = await tmp.auth.signUp({
-      email: email.trim(), password,
-      options: { data: { name: name.trim(), role: 'mde' } },
-    });
-    if (error){
-      const m = (error.message || '').toLowerCase();
-      if (m.includes('already registered') || m.includes('already been')) throw new Error('এই ইমেইলে অ্যাকাউন্ট আগেই আছে');
-      if (m.includes('password')) throw new Error('পাসওয়ার্ড অন্তত ৬ অক্ষরের দিন');
-      if (m.includes('signups not allowed') || m.includes('disabled'))
-        throw new Error('Supabase-এ নতুন অ্যাকাউন্ট খোলা বন্ধ আছে — Authentication → Sign In / Providers → Allow new users to sign up চালু করুন');
-      throw new Error(error.message);
-    }
-    const needsConfirm = data && data.user && !data.session && !data.user.confirmed_at;
-    return { needsConfirm: !!needsConfirm };
-  },
-
-  async setStaffActive(id, active){
-    const { error } = await this.sb.from('profiles').update({ active }).eq('id', id);
-    if (error) throw new Error(this._say(error));
-    return true;
-  },
-
   async staff(){ return []; },
+  async createStaff(){ throw new Error('ক্লাউড চালু না থাকলে কর্মী যোগ করা যায় না'); },
+  async setStaffActive(){ return false; },
 };
 
 /* ══════════ ক্লাউড (Supabase) ══════════ */
@@ -173,6 +144,37 @@ const CloudStore = {
 
   async setSettings(s){
     const { error } = await this.sb.from('settings').upsert({ id: 'shop', body: s });
+    if (error) throw new Error(this._say(error));
+    return true;
+  },
+
+  /* মালিক অ্যাপের ভেতর থেকেই কর্মীর অ্যাকাউন্ট খুলতে পারবেন।
+     আলাদা ক্লায়েন্ট ব্যবহার করা হয় যাতে মালিকের নিজের লগইন কেটে না যায়। */
+  async createStaff(name, email, password){
+    const { createClient } = await import(
+      'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.4/+esm'
+    );
+    const tmp = createClient(CONFIG.supabase.url, CONFIG.supabase.key, {
+      auth: { persistSession: false, autoRefreshToken: false, storageKey: 'jara.tmp' },
+    });
+    const { data, error } = await tmp.auth.signUp({
+      email: email.trim(), password,
+      options: { data: { name: name.trim(), role: 'mde' } },
+    });
+    if (error){
+      const m = (error.message || '').toLowerCase();
+      if (m.includes('already registered') || m.includes('already been')) throw new Error('এই ইমেইলে অ্যাকাউন্ট আগেই আছে');
+      if (m.includes('password')) throw new Error('পাসওয়ার্ড অন্তত ৬ অক্ষরের দিন');
+      if (m.includes('signups not allowed') || m.includes('disabled'))
+        throw new Error('Supabase-এ নতুন অ্যাকাউন্ট খোলা বন্ধ আছে — Authentication → Sign In / Providers → Allow new users to sign up চালু করুন');
+      throw new Error(error.message);
+    }
+    const needsConfirm = data && data.user && !data.session && !data.user.confirmed_at;
+    return { needsConfirm: !!needsConfirm };
+  },
+
+  async setStaffActive(id, active){
+    const { error } = await this.sb.from('profiles').update({ active }).eq('id', id);
     if (error) throw new Error(this._say(error));
     return true;
   },
