@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>জারা মাঠ — ইলেকট্রিক বাজার ব্যবস্থাপনা</title>
+<meta name="description" content="জারা ইলেকট্রিক ও ইলেকট্রনিক্স — নির্মাণাধীন বাড়ি, মিস্ত্রি ও পাইকারি ক্রেতার মাঠ ব্যবস্থাপনা">
+<meta name="theme-color" content="#0B2545">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<div id="boot" class="boot"><div class="boot-mark">জ</div><p>লোড হচ্ছে…</p></div>
+
+<header class="topbar" id="topbar" hidden>
+  <button class="tb-back" id="btnBack" hidden aria-label="পেছনে">‹</button>
+  <div class="tb-title">
+    <span class="tb-eyebrow">জারা ইলেকট্রিক ও ইলেকট্রনিক্স</span>
+    <h1 id="viewTitle">আজকের কাজ</h1>
+  </div>
+  <button class="tb-act" id="btnAdd" aria-label="নতুন কাস্টমার">＋</button>
+</header>
+
+<main id="app" hidden></main>
+
+<nav class="tabbar" id="tabbar" hidden>
+  <button data-view="today"  class="on"><span class="ic">◉</span><span>আজ</span></button>
+  <button data-view="people"><span class="ic">☷</span><span>কাস্টমার</span></button>
+  <button data-view="map"><span class="ic">◈</span><span>ম্যাপ</span></button>
+  <button data-view="route"><span class="ic">➤</span><span>রুট</span></button>
+  <button data-view="report"><span class="ic">▤</span><span>রিপোর্ট</span></button>
+</nav>
+
+<div class="sheet-wrap" id="sheetWrap" hidden>
+  <div class="sheet-bg" data-close></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true"></div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
