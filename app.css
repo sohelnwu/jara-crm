@@ -352,3 +352,14 @@ main.flush{padding-left:0;padding-right:0}
 .login-note{margin:12px 0 0;text-align:center;color:var(--fg-3);font-size:11.5px}
 .error-box{background:var(--bad-bg);color:var(--bad);border-radius:var(--radius-sm);
   padding:10px 12px;font-size:12.5px;margin-bottom:12px}
+
+/* ── বিক্রির খাতা ────────────────────────── */
+.srow{display:flex;gap:11px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line-soft)}
+.srow:last-child{border-bottom:0}
+.sthumb{width:56px;height:56px;border-radius:10px;overflow:hidden;flex:0 0 auto;display:grid;place-items:center;
+  background:var(--surface-2);border:1px solid var(--line);text-decoration:none}
+.sthumb img{width:100%;height:100%;object-fit:cover}
+.sthumb.empty{font-size:9.5px;color:var(--fg-3);text-align:center;padding:4px}
+.sbody{flex:1;min-width:0}
+.sbody b{display:block;font-size:15px}
+.sbody small{display:block;color:var(--fg-3);font-size:11.5px;margin-top:2px}

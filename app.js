@@ -48,15 +48,51 @@ const NEED_LABEL = {
   '90': '৩ মাসের মধ্যে', '120': '৪ মাসের মধ্যে', '180': '৬ মাসের মধ্যে',
 };
 
+/* উল্লাপাড়া উপজেলার ১৪টি ইউনিয়ন ও পৌরসভা — সরকারি তালিকা মিলিয়ে নেওয়া।
+   গ্রাম ও পাড়ার নাম বানিয়ে বসানো হয়নি; ব্যবহারের সাথে সাথে তালিকা নিজেই তৈরি হয়। */
+const UNIONS = [
+  'উল্লাপাড়া পৌরসভা',
+  'উল্লাপাড়া সদর',
+  'উধুনিয়া',
+  'কয়ড়া',
+  'দুর্গানগর',
+  'পঞ্চক্রোশী',
+  'পূর্ণিমাগাঁতী',
+  'বড়পাঙ্গাসী',
+  'বড়হর',
+  'বাঙ্গালা',
+  'রামকৃষ্ণপুর',
+  'লাহিড়ী মোহনপুর',
+  'সলঙ্গা',
+  'সলপ',
+  'হাটিকুমরুল',
+  'উপজেলার বাইরে',
+];
+
+/* আগে যত গ্রাম/পাড়া লেখা হয়েছে সেগুলোই পরের বার তালিকায় আসে */
+function learned(field, union){
+  const set = new Set();
+  S.list.forEach(c => {
+    if (union && c.union && c.union !== union) return;
+    const v = (c[field] || '').trim();
+    if (v) set.add(v);
+  });
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'bn'));
+}
+function dataListHTML(id, items){
+  return '<datalist id="' + id + '">' +
+    items.map(v => '<option value="' + esc(v) + '"></option>').join('') + '</datalist>';
+}
+
 const EVENT_LABEL = {
   created: 'রেকর্ড খোলা হয়েছে', visit: 'মাঠে ভিজিট', call: 'ফোনে কথা',
   wa: 'WhatsApp-এ কথা', tea: 'দোকানে এসেছেন', sale: 'বিক্রি', won: 'কাজ পেয়েছি',
   lost: 'কাজ হাতছাড়া', note: 'নোট', stage: 'অবস্থা বদল', pin: 'ম্যাপে পিন',
-  invite: 'চা-দাওয়াত দেওয়া হয়েছে', promise: 'আসার তারিখ দিয়েছেন',
+  invite: 'চা-কফির দাওয়াত দেওয়া হয়েছে', promise: 'আসার তারিখ দিয়েছেন',
   noshow: 'আসেননি', reschedule: 'তারিখ পিছিয়েছে',
 };
 
-/* চা-দাওয়াতের ধাপ — মাঠ থেকে দোকান পর্যন্ত পুরো পথ */
+/* চা-কফির দাওয়াতের ধাপ — মাঠ থেকে দোকান পর্যন্ত পুরো পথ */
 const TEA = [
   ['none',    'দাওয়াত দেওয়া হয়নি'],
   ['invited', 'দাওয়াত দেওয়া হয়েছে'],
@@ -66,6 +102,19 @@ const TEA = [
 ];
 const TEA_LABEL = Object.fromEntries(TEA);
 const TEA_CHIP  = { none:'idle', invited:'gold', promised:'warm', came:'ok', noshow:'bad' };
+
+/* মাঠকর্মীর পদবি — সেটিংস থেকে বদলানো যায় */
+const TITLES_OPT = [
+  ['TSO', 'টিএসও', 'Territory Sales Officer — এলাকা বিক্রয় কর্মকর্তা'],
+  ['SR',  'এসআর',  'Sales Representative — গ্রামে সবচেয়ে পরিচিত ডাক'],
+  ['FO',  'এফও',   'Field Officer — মাঠ কর্মকর্তা'],
+  ['ME',  'এমই',   'Marketing Executive — বিপণন নির্বাহী'],
+];
+function roleLabel(){
+  const k = (S.settings && S.settings.roleTitle) || 'TSO';
+  const r = TITLES_OPT.find(x => x[0] === k);
+  return r ? r[1] : k;
+}
 
 /* যোগাযোগের মাধ্যম ও ফলাফল */
 const METHODS = [
@@ -115,6 +164,13 @@ function agoText(iso){
   if (d < 30) return bn(d) + ' দিন আগে';
   if (d < 365) return bn(Math.floor(d / 30)) + ' মাস আগে';
   return bn(Math.floor(d / 365)) + ' বছর আগে';
+}
+
+/* এলাকা একভাবে দেখানো: পাড়া, গ্রাম, ইউনিয়ন */
+function placeText(c, full){
+  const bits = [c.para, c.village].filter(Boolean);
+  if (full && c.union) bits.push(c.union);
+  return bits.join(', ');
 }
 
 function phoneDigits(p){ return String(p || '').replace(/\D/g, ''); }
@@ -175,7 +231,7 @@ function score(c){
   return Math.round(s);
 }
 
-/* কবে ধরতে হবে — চা-দাওয়াতের তারিখ ও পরের যোগাযোগের মধ্যে যেটা আগে */
+/* কবে ধরতে হবে — চা-কফির দাওয়াতের তারিখ ও পরের যোগাযোগের মধ্যে যেটা আগে */
 function dueDate(c){
   const a = (c.teaStatus === 'promised' || c.teaStatus === 'invited') && c.teaDate ? c.teaDate : '';
   const b = c.nextDate || '';
@@ -323,7 +379,7 @@ function viewToday(){
   const pipeline = open.reduce((n, c) => n + pipelineValue(c, S.settings.perFloorValue), 0);
   const pinless  = S.list.filter(c => c.lat == null).length;
   const won = S.list.filter(c => c.status === 'won');
-  const sales = won.reduce((n, c) => n + (Number(c.saleAmount) || 0), 0);
+  const sales = won.reduce((n, c) => n + salesTotal(c), 0);
 
   let h = '';
 
@@ -370,7 +426,7 @@ function personRow(c, s){
   const km = distKm(S.settings.shopLat, S.settings.shopLng, c.lat, c.lng);
 
   const bits = [];
-  if (c.village) bits.push(c.village);
+  const pl = placeText(c); if (pl) bits.push(pl);
   if (c.type === 'নতুন বাড়ির মালিক'){
     if (c.floors) bits.push(bn(c.floors) + ' তলা');
     if (c.elecStatus) bits.push(c.elecStatus);
@@ -382,7 +438,7 @@ function personRow(c, s){
   else chip = '<span class="chip ' + b.k + '">' + b.t + '</span>';
 
   const flags = (c.lat == null ? '<span class="chip idle">পিন নেই</span>' : '') +
-                (c.teaDate && !c.teaDone ? '<span class="chip gold">চা-দাওয়াত</span>' : '');
+                (c.teaDate && !c.teaDone ? '<span class="chip gold">চা-কফির দাওয়াত</span>' : '');
 
   return '<button class="prow" data-open="' + esc(c.id) + '">' +
     '<span class="pstripe" style="background:' + (c.status === 'won' ? '#1E7A4D' : c.status === 'lost' ? '#B3261E' : BAND_COLOR[b.k]) + '"></span>' +
@@ -411,7 +467,7 @@ function followRow(c){
     : '<span class="chip cool">' + banglaDate(d) + '</span>';
 
   const why = kind === 'tea'
-    ? '<span class="chip gold">' + (c.teaStatus === 'promised' ? 'আসবেন বলেছেন' : 'চা-দাওয়াত') + '</span>'
+    ? '<span class="chip gold">' + (c.teaStatus === 'promised' ? 'আসবেন বলেছেন' : 'চা-কফির দাওয়াত') + '</span>'
     : '';
 
   return '<div class="frow">' +
@@ -419,7 +475,7 @@ function followRow(c){
       '<span class="pstripe" style="background:' + BAND_COLOR[b.k] + '"></span>' +
       '<span class="pbody">' +
         '<span class="pname">' + esc(c.name || 'নামহীন') + when + why + '</span>' +
-        '<span class="pmeta">' + esc([c.village, c.type, c.elecStatus].filter(Boolean).join(' · ') || '—') +
+        '<span class="pmeta">' + esc([placeText(c), c.type, c.elecStatus].filter(Boolean).join(' · ') || '—') +
         ' · শেষ কথা ' + agoText(c.lastContact || c.createdAt) + '</span>' +
       '</span>' +
     '</button>' +
@@ -458,20 +514,39 @@ function viewFollow(){
   h += block('আজ ধরতে হবে', g.today);
   h += block('আগামী ৭ দিন', g.week);
 
-  /* দোকানে আসার তারিখ অনুযায়ী */
+  /* ───── চা-কফির দাওয়াত: মাঠ থেকে দোকান পর্যন্ত ───── */
+  const invited = live.filter(c => c.teaStatus === 'invited');
+  const came    = S.list.filter(c => c.teaStatus === 'came');
+  const asked   = S.list.filter(c => c.teaStatus && c.teaStatus !== 'none').length;
+  const rate    = asked ? Math.round(came.length / asked * 100) : 0;
+
+  h += '<div class="sec-h" style="margin-top:4px"><h2>চা-কফির দাওয়াত</h2>' +
+       '<span class="more">' + (asked ? bn(rate) + '% এসেছেন' : 'এখনো শুরু হয়নি') + '</span></div>';
+  h += '<div class="stats">' +
+    '<div class="stat"><div class="k">দাওয়াত দেওয়া</div><div class="v">' + bn(invited.length) + '</div></div>' +
+    '<div class="stat"><div class="k">আসবেন বলেছেন</div><div class="v" style="color:var(--warm)">' + bn(coming.length) + '</div></div>' +
+    '<div class="stat"><div class="k">দোকানে এসেছেন</div><div class="v" style="color:var(--ok)">' + bn(came.length) + '</div></div>' +
+    '<div class="stat"><div class="k">আসেননি</div><div class="v" style="color:var(--bad)">' + bn(noshow.length) + '</div></div>' +
+    '</div>';
+
   if (coming.length){
     const byDate = {};
     coming.forEach(c => { (byDate[c.teaDate] = byDate[c.teaDate] || []).push(c); });
-    h += '<div class="sec-h"><h2>দোকানে আসার তারিখ</h2><span class="more">তারিখে চাপুন</span></div><div class="card pad0">' +
+    h += '<div class="sec-h"><h2>কবে কে আসবেন</h2><span class="more">তারিখে চাপুন</span></div><div class="card pad0">' +
       Object.keys(byDate).sort().map(d => {
         const ov = d < todayISO();
         return '<details class="dgroup"' + (ov || d === todayISO() ? ' open' : '') + '>' +
-          '<summary><span>' + banglaDate(d) + '</span>' +
+          '<summary><span>' + banglaDate(d) +
+          (ov ? ' — আসার কথা ছিল' : d === todayISO() ? ' — আজ' : '') + '</span>' +
           '<span class="chip ' + (ov ? 'hot' : d === todayISO() ? 'warm' : 'cool') + '">' +
           bn(byDate[d].length) + ' জন</span></summary>' +
           byDate[d].map(followRow).join('') + '</details>';
       }).join('') + '</div>';
   }
+
+  if (invited.length)
+    h += block('দাওয়াত দেওয়া হয়েছে — তারিখ নেননি', invited,
+               'এদের কাছে জেনে নিন কবে আসতে পারবেন, তারিখটা বসিয়ে দিন।');
 
   if (noshow.length) h += block('আসেননি — আবার দাওয়াত দিন', noshow);
 
@@ -510,8 +585,8 @@ function filtered(){
     if (S.filter === 'nopin' && c.lat != null)       return false;
     if (!['all','won','lost','nopin'].includes(S.filter) && c.type !== S.filter) return false;
     if (!q) return true;
-    return [c.name, c.phone, c.village, c.address, c.type, c.supplierName, c.notes]
-      .join(' ').toLowerCase().includes(q);
+    return [c.name, c.phone, c.village, c.para, c.union, c.address, c.type, c.supplierName, c.notes]
+      .concat(' ', c.union || '', ' ', c.para || '').join(' ').toLowerCase().includes(q);
   });
 }
 
@@ -566,7 +641,7 @@ function paintMap(){
     }).addTo(S.map);
     m.bindPopup(
       '<div class="maptip"><b>' + esc(c.name || 'নামহীন') + '</b><br>' +
-      '<small>' + esc([c.village, c.type].filter(Boolean).join(' · ')) + '</small><br>' +
+      '<small>' + esc([placeText(c, true), c.type].filter(Boolean).join(' · ')) + '</small><br>' +
       '<small>দোকান থেকে ' + distText(km) + '</small><br>' +
       '<a href="' + mapsDir(c.lat, c.lng) + '" target="_blank" rel="noopener">রাস্তা দেখুন ↗</a> · ' +
       '<a href="#" data-pop="' + esc(c.id) + '">বিস্তারিত</a></div>');
@@ -617,7 +692,7 @@ function viewRoute(){
       ' style="width:20px;height:20px;flex:0 0 auto;margin-top:3px;accent-color:#0B2545">' +
       '<span class="pbody"><span class="pname">' + esc(x.c.name || 'নামহীন') +
       '<span class="chip ' + b.k + '">' + b.t + '</span></span>' +
-      '<span class="pmeta">' + esc([x.c.village, x.c.address].filter(Boolean).join(' · ') || '—') + '</span></span>' +
+      '<span class="pmeta">' + esc([placeText(x.c), x.c.address].filter(Boolean).join(' · ') || '—') + '</span></span>' +
       '<span class="pside"><span class="pdist">' + distText(x.km) + '</span></span></label>';
   }).join('') + '</div></div>';
 
@@ -663,7 +738,7 @@ function staffPeriod(days){
       if (!inLast(e.t, days)) return;
       if (['visit','call','wa'].includes(e.type)) row(who).touch++;
       if (e.type === 'tea') row(who).tea++;
-      if (e.type === 'won'){ row(who).won++; row(who).amt += Number(c.saleAmount) || 0; }
+      if (e.type === 'won' || e.type === 'sale'){ row(who).won++; row(who).amt += Number(c.saleAmount) || 0; }
     });
   });
   return Object.entries(m).sort((a, b) =>
@@ -673,12 +748,12 @@ function staffPeriod(days){
 function periodStats(days){
   const s = { fresh: 0, touch: 0, tea: 0, won: 0, amount: 0, places: new Set() };
   S.list.forEach(c => {
-    if (inLast(c.createdAt, days)){ s.fresh++; if (c.village) s.places.add(c.village); }
+    if (inLast(c.createdAt, days)){ s.fresh++; const pl = placeText(c); if (pl) s.places.add(pl); }
     (c.events || []).forEach(e => {
       if (!inLast(e.t, days)) return;
       if (['visit','call','wa'].includes(e.type)) s.touch++;
       if (e.type === 'tea') s.tea++;
-      if (e.type === 'won'){ s.won++; s.amount += Number(c.saleAmount) || 0; }
+      if (e.type === 'won' || e.type === 'sale'){ s.won++; s.amount += Number(c.saleAmount) || 0; }
     });
   });
   return s;
@@ -704,7 +779,7 @@ function viewReport(){
   const lost = all.filter(c => c.status === 'lost');
   const closed = won.length + lost.length;
   const rate = closed ? Math.round(won.length / closed * 100) : 0;
-  const sales = won.reduce((n, c) => n + (Number(c.saleAmount) || 0), 0);
+  const sales = won.reduce((n, c) => n + salesTotal(c), 0);
 
   let h = h0 + '<div class="sec-h"><h2>সব মিলিয়ে</h2></div><div class="stats">' +
     '<div class="stat"><div class="k">মোট রেকর্ড</div><div class="v">' + bn(all.length) + '</div></div>' +
@@ -719,7 +794,7 @@ function viewReport(){
   // village breakdown
   const byVillage = {};
   all.forEach(c => {
-    const v = c.village || 'গ্রাম লেখা নেই';
+    const v = placeText(c) || c.union || 'এলাকা লেখা নেই';
     byVillage[v] = byVillage[v] || { n: 0, w: 0 };
     byVillage[v].n++;
     if (c.status === 'won') byVillage[v].w++;
@@ -758,11 +833,11 @@ function viewReport(){
     }).join('') || '<div class="empty">তথ্য নেই</div>';
   h += '</div>';
 
-  /* চা-দাওয়াতের ফানেল — মাঠ থেকে দোকান পর্যন্ত */
+  /* চা-কফির দাওয়াতের ফানেল — মাঠ থেকে দোকান পর্যন্ত */
   const teaOf = k => all.filter(c => (c.teaStatus || 'none') === k).length;
   const invited = all.filter(c => c.teaStatus && c.teaStatus !== 'none').length;
   const came = teaOf('came');
-  h += '<div class="sec-h"><h2>চা-দাওয়াত কতদূর গেল</h2>' +
+  h += '<div class="sec-h"><h2>চা-কফির দাওয়াত কতদূর গেল</h2>' +
        '<span class="more">' + (invited ? bn(Math.round(came / invited * 100)) + '% এসেছেন' : '—') + '</span></div><div class="card">' +
     TEA.filter(([k]) => k !== 'none').map(([k, l]) => {
       const n = teaOf(k);
@@ -833,11 +908,22 @@ function formHTML(c){
   '<span>WhatsApp নম্বর</span>' +
   '<input id="f_wa" type="tel" inputmode="numeric" value="' + esc(v.whatsapp || '') + '" placeholder="০১৮…"></label>' +
 
-  '<label class="field"><span>গ্রাম / এলাকা</span>' +
-  '<input id="f_village" value="' + esc(v.village || '') + '" placeholder="যেমন: জিগরা উত্তরপাড়া"></label>' +
+  '<label class="field"><span>ইউনিয়ন / পৌরসভা</span><select id="f_union">' +
+  '<option value="">বেছে নিন</option>' +
+  UNIONS.map(u => '<option value="' + esc(u) + '"' + (v.union === u ? ' selected' : '') + '>' + esc(u) + '</option>').join('') +
+  '</select></label>' +
 
-  '<label class="field"><span>ঠিকানার বর্ণনা</span>' +
-  '<input id="f_address" value="' + esc(v.address || '') + '" placeholder="মন্ডল বাড়ি, মসজিদের পাশে"></label>' +
+  '<div class="grid2">' +
+  '<label class="field"><span>গ্রাম</span>' +
+  '<input id="f_village" list="dlVillage" autocomplete="off" value="' + esc(v.village || '') + '" placeholder="যেমন: বেতবাড়ী"></label>' +
+  '<label class="field"><span>পাড়া / মহল্লা</span>' +
+  '<input id="f_para" list="dlPara" autocomplete="off" value="' + esc(v.para || '') + '" placeholder="যেমন: উত্তরপাড়া"></label>' +
+  '</div>' +
+  '<div id="dlBox"></div>' +
+  '<div class="hint" style="margin-top:-6px;margin-bottom:14px">একবার যে গ্রাম বা পাড়ার নাম লিখবেন, পরের বার সেটা তালিকায় চলে আসবে — আর টাইপ করতে হবে না।</div>' +
+
+  '<label class="field"><span>বাড়ি চেনার মতো কিছু</span>' +
+  '<input id="f_address" value="' + esc(v.address || '') + '" placeholder="মন্ডল বাড়ি, মসজিদের পাশে, তিনতলা লাল বিল্ডিং"></label>' +
 
   /* ---- location ---- */
   '<div class="field"><span>ম্যাপের পিন</span>' +
@@ -875,7 +961,7 @@ function formHTML(c){
   '</div>' +
 
   '<div class="grid2">' +
-  '<label class="field"><span>চা-দাওয়াতের অবস্থা</span><select id="f_teastat">' +
+  '<label class="field"><span>চা-কফির দাওয়াতের অবস্থা</span><select id="f_teastat">' +
     TEA.map(([k, l]) => '<option value="' + k + '"' + ((v.teaStatus || 'none') === k ? ' selected' : '') + '>' + l + '</option>').join('') +
   '</select></label>' +
   '<label class="field"><span>কবে আসবেন বলেছেন</span>' +
@@ -924,6 +1010,16 @@ function openForm(c){
   typeSel.addEventListener('change', () => {
     $('#cblock').hidden = typeSel.value !== TYPES[0];
   });
+
+  const unionSel = $('#f_union');
+  const refreshLists = () => {
+    $('#dlBox').innerHTML =
+      dataListHTML('dlVillage', learned('village', unionSel.value)) +
+      dataListHTML('dlPara', learned('para', unionSel.value));
+  };
+  refreshLists();
+  unionSel.addEventListener('change', refreshLists);
+  $('#f_village').addEventListener('change', refreshLists);
 
   paintPhotos(FORMREC);
   $('#f_photo').addEventListener('change', async e => {
@@ -1214,7 +1310,9 @@ async function saveForm(c){
   rec.phone = phone;
   rec.waSame = $('#f_wasame').checked;
   rec.whatsapp = rec.waSame ? phone : ($('#f_wa').value.trim() || phone);
+  rec.union   = $('#f_union').value;
   rec.village = $('#f_village').value.trim();
+  rec.para    = $('#f_para').value.trim();
   rec.address = $('#f_address').value.trim();
   rec.lat = isNaN(lat) ? null : lat;
   rec.lng = isNaN(lng) ? null : lng;
@@ -1275,11 +1373,12 @@ function openDetail(id){
   const kv = (k, v) => v ? '<div class="kv"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>' : '';
 
   let body = '<div class="dhead"><h3>' + esc(c.name || 'নামহীন') + '</h3>' +
-    '<div class="dsub">' + esc([c.type, c.village].filter(Boolean).join(' · ')) + '</div>' +
+    '<div class="dsub">' + esc([c.type, placeText(c, true)].filter(Boolean).join(' · ')) + '</div>' +
     '<div class="drow">' +
       (c.status === 'won' ? '<span class="chip ok">কাজ পেয়েছি</span>'
        : c.status === 'lost' ? '<span class="chip bad">হাতছাড়া' + (c.lostTo ? ' — ' + esc(c.lostTo) : '') + '</span>'
-       : '<span class="chip ' + b.k + '">' + b.t + ' · তাগিদ ' + bn(sc) + '</span>') +
+       : '<button class="chip ' + b.k + '" id="whyScore" style="border:0;cursor:pointer">' +
+         b.t + ' · তাগিদ ' + bn(sc) + ' ⓘ</button>') +
       (km != null ? '<span class="chip gold">দোকান থেকে ' + distText(km) + '</span>' : '<span class="chip idle">পিন নেই</span>') +
     '</div></div>';
 
@@ -1295,15 +1394,18 @@ function openDetail(id){
     kv('মোবাইল', '<span class="num">' + esc(c.phone) + '</span>') +
     (c.waSame === false && c.whatsapp && c.whatsapp !== c.phone
       ? kv('WhatsApp', '<span class="num">' + esc(c.whatsapp) + '</span>') : '') +
-    kv('ঠিকানা', esc(c.address)) +
+    kv('এলাকা', esc(placeText(c, true))) +
+    kv('বাড়ি চেনার মতো', esc(c.address)) +
     kv('কয় তলা', c.floors ? bn(c.floors) + ' তলা' : '') +
     kv('নির্মাণের অবস্থা', esc(c.stage)) +
     kv('ইলেকট্রিক কাজ', esc(c.elecStatus)) +
     kv('মাল লাগবে', c.needDays ? NEED_LABEL[String(c.needDays)] : '') +
     kv('এখন মাল নেয়', esc([c.supplierName, c.supplierShop].filter(Boolean).join(', '))) +
-    kv('চা-দাওয়াতের তারিখ', c.teaDate ? banglaDate(c.teaDate) + (c.teaDone ? ' (এসেছেন)' : '') : '') +
+    kv('চা-কফির দাওয়াতের তারিখ', c.teaDate ? banglaDate(c.teaDate) + (c.teaDone ? ' (এসেছেন)' : '') : '') +
     kv('পরের যোগাযোগ', c.nextDate ? banglaDate(c.nextDate) : '') +
     kv('শেষ যোগাযোগ', agoText(c.lastContact || c.createdAt)) +
+    kv('কে তুলেছে', c.by ? esc(c.by) + ' <span class="chip cool">' + roleLabel() + '</span>' : '') +
+    kv('কবে তোলা হয়েছে', c.createdAt ? banglaDate(c.createdAt) : '') +
     kv('নোট', esc(c.notes)) +
   '</div>';
 
@@ -1322,11 +1424,17 @@ function openDetail(id){
     '<button class="btn sec" data-log="visit">মাঠে দেখা হলো</button>' +
     '<button class="btn sec" data-log="tea">দোকানে এসেছেন</button></div>';
 
-  if (c.status !== 'won' && c.status !== 'lost'){
+  const sl = salesOf(c);
+  if (c.status === 'won'){
+    body += '<div class="sec-h" style="margin-top:16px"><h2>বিক্রির খাতা</h2>' +
+            '<span class="more num">মোট ' + money(salesTotal(c)) + '</span></div>' +
+            '<div class="card"><div id="saleList"></div></div>' +
+            '<button class="btn gold block" id="mMore" style="margin-top:9px">＋ আবার মাল নিয়েছেন</button>';
+  } else if (c.status === 'lost'){
+    body += '<button class="btn sec block" id="mReopen">আবার চালু করুন</button>';
+  } else {
     body += '<div class="btnrow"><button class="btn gold" id="mWon">কাজ পেয়েছি</button>' +
             '<button class="btn sec" id="mLost">হাতছাড়া হয়েছে</button></div>';
-  } else {
-    body += '<button class="btn sec block" id="mReopen">আবার চালু করুন</button>';
   }
 
   if ((c.photos || []).length){
@@ -1347,6 +1455,8 @@ function openDetail(id){
     '<div class="btnrow"><button class="btn sec" data-close>বন্ধ</button>' +
     '<button class="btn pri" id="editC">সম্পাদনা</button></div>');
 
+  const why = $('#whyScore');
+  if (why) why.addEventListener('click', () => explainScore(c));
   if ((c.photos || []).length) paintDetailPhotos(c);
   $('#editC').addEventListener('click', () => { closeSheet(); setTimeout(() => openForm(c), 60); });
   const pn = $('#pinNow');
@@ -1355,8 +1465,10 @@ function openDetail(id){
   $('#sheet').querySelectorAll('[data-log]').forEach(btn =>
     btn.addEventListener('click', () => logAction(c, btn.dataset.log)));
 
-  const won = $('#mWon'), lost = $('#mLost'), re = $('#mReopen');
-  if (won)  won.addEventListener('click', () => markWon(c));
+  if (c.status === 'won') paintSales(c);
+  const won = $('#mWon'), lost = $('#mLost'), re = $('#mReopen'), more = $('#mMore');
+  if (won)  won.addEventListener('click', () => addSale(c, true));
+  if (more) more.addEventListener('click', () => addSale(c, false));
   if (lost) lost.addEventListener('click', () => markLost(c));
   if (re)   re.addEventListener('click', async () => {
     c.status = 'open'; c.lostTo = ''; addEvent(c, 'note', 'আবার চালু');
@@ -1383,6 +1495,43 @@ async function paintDetailPhotos(c){
   }
 }
 
+/* তাগিদের সংখ্যাটা কোথা থেকে এলো — খুলে দেখানো */
+function explainScore(c){
+  const parts = [];
+  const last = c.lastContact || c.createdAt;
+  const stale = Math.min(15, daysSince(last) * 1.2);
+
+  if (c.type === 'নতুন বাড়ির মালিক'){
+    parts.push(['ইলেকট্রিক কাজের অবস্থা', c.elecStatus || '—', weightOf(ELEC, c.elecStatus, 22)]);
+    parts.push(['কত দিনে মাল লাগবে', NEED_LABEL[String(c.needDays || '')] || 'জানা নেই', weightOf(NEED, String(c.needDays || ''), 8)]);
+    parts.push(['নির্মাণ কতদূর', c.stage || '—', weightOf(STAGES, c.stage, 8)]);
+  } else {
+    const base = { 'ইলেকট্রিশিয়ান': 26, 'ঠিকাদার': 24, 'পাইকারি দোকানদার': 20 };
+    parts.push(['সম্পর্কের গুরুত্ব', c.type || '—', base[c.type] || 12]);
+  }
+  parts.push(['কতদিন কথা হয়নি', agoText(last), Math.round(c.type === 'নতুন বাড়ির মালিক' ? stale : stale * 1.6)]);
+  if (dueDate(c) && dueDate(c) <= todayISO())
+    parts.push(['তারিখ পেরিয়ে গেছে / আজকের দিন', banglaDate(dueDate(c)), 25]);
+  if (c.teaStatus === 'promised') parts.push(['আসবেন বলে কথা দিয়েছেন', '', 10]);
+  if (c.teaStatus === 'noshow')   parts.push(['কথা দিয়ে আসেননি', '', 6]);
+
+  const total = score(c), b = band(total);
+  openSheet('তাগিদ কীভাবে হিসাব হয়',
+    '<p style="margin-top:0" class="muted">অ্যাপ নিজে থেকেই ঠিক করে আজ কাকে আগে ধরা দরকার। ' +
+    esc(c.name || 'এই কাস্টমার') + '-এর হিসাবটা এরকম:</p>' +
+    '<div class="card">' + parts.map(([k, v, n]) =>
+      '<div class="kv"><span class="k">' + k + (v ? '<br><small>' + esc(v) + '</small>' : '') +
+      '</span><span class="v num">+' + bn(n) + '</span></div>').join('') +
+    '<div class="kv" style="border-top:2px solid var(--line)"><span class="k"><b>মোট তাগিদ</b></span>' +
+    '<span class="v num"><b>' + bn(total) + '</b> <span class="chip ' + b.k + '">' + b.t + '</span></span></div>' +
+    '</div>' +
+    '<div class="hint" style="margin-top:12px">৬০-এর উপরে হলে <b>এখনই ধরুন</b>, ৪০–৫৯ হলে <b>শীঘ্রই</b>, ' +
+    '২০–৩৯ হলে <b>নজরে রাখুন</b>। সংখ্যা যত বড়, তালিকায় তত উপরে।<br><br>' +
+    'ছাদ ঢালাই শেষ, ইলেকট্রিকের কথা হয়েছে অথচ ওয়্যারিং শুরু হয়নি — এমন বাড়ির তাগিদ সবচেয়ে বেশি হবে। ' +
+    'কাজ পেয়ে গেলে বা হাতছাড়া হলে তাগিদ শূন্য হয়ে যায়।</div>',
+    '<button class="btn sec block" data-close>বুঝেছি</button>');
+}
+
 function logAction(c, preset){
   const method = preset && METHODS.some(m => m[0] === preset) ? preset : 'call';
   const teaPre = preset === 'tea' ? 'came' : (c.teaStatus || 'none');
@@ -1400,7 +1549,7 @@ function logAction(c, preset){
     '<label class="field"><span>কী কথা হলো</span>' +
     '<textarea id="lgTxt" placeholder="সংক্ষেপে লিখুন"></textarea></label>' +
 
-    '<label class="field"><span>চা-দাওয়াতের অবস্থা</span><select id="lgTea">' +
+    '<label class="field"><span>চা-কফির দাওয়াতের অবস্থা</span><select id="lgTea">' +
       TEA.map(([k, l]) => '<option value="' + k + '"' + (teaPre === k ? ' selected' : '') + '>' + l + '</option>').join('') +
     '</select></label>' +
 
@@ -1456,25 +1605,90 @@ function askPurchase(c){
   openSheet('দোকানে এসেছেন',
     '<p style="margin-top:0">' + esc(c.name || 'নামহীন') + ' দোকানে এসেছেন বলে লেখা হয়েছে। কিছু কিনেছেন?</p>' +
     '<div class="hint">না কিনলেও সমস্যা নেই — সম্পর্কটাই আসল। পরে আবার ধরা যাবে।</div>',
-    '<div class="btnrow"><button class="btn sec" data-close>শুধু চা খেয়েছেন</button>' +
+    '<div class="btnrow"><button class="btn sec" data-close>শুধু চা-কফি খেয়েছেন</button>' +
     '<button class="btn gold" id="apYes">মাল কিনেছেন</button></div>');
-  $('#apYes').addEventListener('click', () => { closeSheet(); setTimeout(() => markWon(c), 250); });
+  $('#apYes').addEventListener('click', () => { closeSheet(); setTimeout(() => addSale(c, true), 250); });
 }
 
-function markWon(c){
-  openSheet('কাজ পেয়েছি',
+/* পুরোনো এক-বিক্রির রেকর্ডকে খাতার চেহারা দেওয়া */
+function salesOf(c){
+  if (Array.isArray(c.sales)) return c.sales;
+  if (c.saleAmount) return [{
+    id: 's0', t: c.updatedAt || c.createdAt,
+    amount: Number(c.saleAmount) || 0, note: c.saleItems || '', photo: null
+  }];
+  return [];
+}
+function salesTotal(c){ return salesOf(c).reduce((n, x) => n + (Number(x.amount) || 0), 0); }
+
+function addSale(c, first){
+  openSheet(first ? 'কাজ পেয়েছি' : 'আবার মাল নিয়েছেন',
     '<label class="field"><span>কত টাকার মাল গেছে</span>' +
-    '<input id="wAmt" type="number" inputmode="numeric" min="0" placeholder="যেমন ৪৫০০০" value="' + esc(c.saleAmount || '') + '"></label>' +
-    '<label class="field"><span>কী কী নিয়েছে</span>' +
-    '<textarea id="wItems" placeholder="তার, সুইচ, MCB…">' + esc(c.saleItems || '') + '</textarea></label>',
-    '<button class="btn gold block" id="wSave">সংরক্ষণ</button>');
-  $('#wSave').addEventListener('click', async () => {
-    c.status = 'won';
-    c.saleAmount = $('#wAmt').value;
-    c.saleItems = $('#wItems').value.trim();
-    addEvent(c, 'won', c.saleAmount ? money(c.saleAmount) : '');
-    await saveRec(c); closeSheet(); toast('অভিনন্দন!'); render();
+    '<input id="sAmt" type="number" inputmode="numeric" min="0" placeholder="যেমন ৪৫০০০"></label>' +
+
+    '<div class="field"><span>মেমোর ছবি</span>' +
+    '<div id="memoPrev" class="plist2"></div>' +
+    '<label class="btn sec block" style="margin-top:8px">📷 মেমোর ছবি তুলুন' +
+    '<input type="file" id="sPhoto" accept="image/*" capture="environment" hidden></label>' +
+    '<div class="hint">কী কী নিয়েছে টাইপ করার দরকার নেই — মেমোর ছবিটাই যথেষ্ট। পরে দেখলেই বোঝা যাবে।</div></div>' +
+
+    '<label class="field"><span>নিজের নোট (ইচ্ছা হলে)</span>' +
+    '<input id="sNote" placeholder="যেমন: তার আর সুইচ"></label>',
+
+    '<button class="btn gold block" id="sSave">সংরক্ষণ</button>');
+
+  let photoKey = null;
+  $('#sPhoto').addEventListener('change', async e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    toast('ছবি যোগ হচ্ছে…');
+    try{
+      const b = await shrink(f, 1500, 0.72);
+      photoKey = 'me' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      if (Store.mode === 'cloud') await Store.putPhoto(photoKey, b);
+      else await photoPut(photoKey, b);
+      const src = await photoSrc(photoKey);
+      $('#memoPrev').innerHTML = src
+        ? '<div class="pcell"><img src="' + src + '" alt="মেমো"></div>'
+        : '<p class="muted" style="margin:0">ছবি যোগ হয়েছে</p>';
+    }catch(err){ photoKey = null; toast('ছবিটা নেওয়া গেল না'); }
   });
+
+  $('#sSave').addEventListener('click', async () => {
+    const amt = Number($('#sAmt').value) || 0;
+    if (!amt && !photoKey){ toast('টাকার অঙ্ক বা মেমোর ছবি — অন্তত একটা দিন'); return; }
+    c.sales = salesOf(c).slice();
+    c.sales.unshift({
+      id: 'sl' + Date.now().toString(36),
+      t: new Date().toISOString(),
+      amount: amt, note: $('#sNote').value.trim(), photo: photoKey
+    });
+    c.saleAmount = salesTotal(c);
+    c.status = 'won';
+    addEvent(c, first ? 'won' : 'sale', amt ? money(amt) : 'মেমো যোগ');
+    await saveRec(c); closeSheet();
+    toast(first ? 'অভিনন্দন!' : 'বিক্রি যোগ হয়েছে');
+    render();
+  });
+}
+
+async function paintSales(c){
+  const box = $('#saleList');
+  if (!box) return;
+  const rows = salesOf(c);
+  box.innerHTML = '';
+  for (const s2 of rows){
+    const row = document.createElement('div');
+    row.className = 'srow';
+    const src = s2.photo ? await photoSrc(s2.photo) : null;
+    row.innerHTML =
+      (src ? '<a class="sthumb" href="' + src + '" target="_blank" rel="noopener"><img src="' + src + '" alt="মেমো"></a>'
+           : '<span class="sthumb empty">মেমো নেই</span>') +
+      '<span class="sbody"><b class="num">' + money(s2.amount) + '</b>' +
+      '<small>' + banglaDate(s2.t) + (s2.note ? ' · ' + esc(s2.note) : '') + '</small></span>';
+    box.appendChild(row);
+  }
 }
 
 function markLost(c){
@@ -1504,7 +1718,7 @@ function openSettings(){
     (me ? '<div class="card" style="margin-bottom:14px">' +
       '<div class="kv"><span class="k">আপনি</span><span class="v">' + esc(me.name || '—') +
       ' <span class="chip ' + (me.role === 'admin' ? 'gold' : 'cool') + '">' +
-      (me.role === 'admin' ? 'মালিক' : 'MDE') + '</span></span></div>' +
+      (me.role === 'admin' ? 'মালিক' : roleLabel()) + '</span></span></div>' +
       (me.email ? '<div class="kv"><span class="k">ইমেইল</span><span class="v">' + esc(me.email) + '</span></div>' : '') +
       '<div class="kv"><span class="k">ডেটা</span><span class="v">' +
         (cloud ? '<span class="chip ok">ক্লাউডে — সব ফোনে এক</span>'
@@ -1524,6 +1738,11 @@ function openSettings(){
     '<button type="button" class="btn sec block" id="s_pin">◎ দোকানে দাঁড়িয়ে এখানে চাপুন</button>' +
     '<div class="hint">সব দূরত্ব এই বিন্দু থেকে মাপা হয়। একবার দোকানে দাঁড়িয়ে সেট করে নিলে হিসাব নির্ভুল হবে।</div></div>' +
 
+    '<label class="field"><span>মাঠকর্মীদের পদবি</span><select id="s_title">' +
+    TITLES_OPT.map(([k, l, d]) => '<option value="' + k + '"' +
+      ((s.roleTitle || 'TSO') === k ? ' selected' : '') + '>' + l + ' — ' + d + '</option>').join('') +
+    '</select><span class="hint">কাস্টমার ও কর্মী সবাই এই নামেই চিনবে। পরে বদলালে সব জায়গায় বদলে যাবে।</span></label>' +
+
     '<label class="field"><span>প্রতি তলায় আনুমানিক মালের দাম (টাকা)</span>' +
     '<input id="s_floor" type="number" inputmode="numeric" min="0" value="' + esc(s.perFloorValue || '') + '" placeholder="যেমন ২৫০০০"></label>' +
     '<div class="hint" style="margin-top:-8px;margin-bottom:14px">এটা আপনার নিজের অনুমান — আমি কোনো দাম বসাইনি। দিলে পাইপলাইনে কত টাকার কাজ আছে সেটা হিসাব করে দেখাব।</div>' +
@@ -1541,8 +1760,10 @@ function openSettings(){
       ? 'ডেটা ক্লাউডে আছে, সব ফোনে এক। তবু মাসে একবার ব্যাকআপ নামিয়ে রাখা ভালো।'
       : 'এখন ডেটা শুধু এই ফোনে আছে। নিয়মিত ব্যাকআপ নিন — ফোন হারালে বা ব্রাউজারের ডেটা মুছলে সব চলে যাবে।') + '</div>' +
 
-    (cloud ? '<div class="sec-h" style="margin-top:16px"><h2>অ্যাকাউন্ট</h2></div>' +
+    (cloud ? '<div class="sec-h" style="margin-top:16px"><h2>কর্মী</h2></div>' +
       '<div id="staffBox"></div>' +
+      (me && me.role === 'admin'
+        ? '<button class="btn pri block" id="s_addstaff" style="margin-top:9px">＋ নতুন কর্মী যোগ করুন</button>' : '') +
       '<button class="btn sec block" id="s_out" style="margin-top:9px">লগআউট</button>' : ''),
 
     '<button class="btn gold block" id="s_save">সংরক্ষণ</button>');
@@ -1567,7 +1788,10 @@ function openSettings(){
       await Store.signOut();
       location.reload();
     });
-    if (me && me.role === 'admin') paintStaff();
+    if (me && me.role === 'admin'){
+      paintStaff();
+      $('#s_addstaff').addEventListener('click', () => openAddStaff());
+    }
   }
 
   $('#s_xls').addEventListener('click', exportXlsx);
@@ -1577,11 +1801,53 @@ function openSettings(){
   $('#s_save').addEventListener('click', async () => {
     if (!cloud) S.settings.myName = $('#s_name').value.trim();
     S.settings.perFloorValue = Number($('#s_floor').value) || 0;
+    S.settings.roleTitle = $('#s_title').value;
     try{
       await Store.setSettings(S.settings);
       closeSheet(); toast('সেটিংস সংরক্ষিত'); render();
     }catch(e){
       toast(/অনুমতি|row-level/i.test(e.message || '') ? 'সেটিংস শুধু মালিক বদলাতে পারেন' : (e.message || 'সংরক্ষণ হয়নি'));
+    }
+  });
+}
+
+function openAddStaff(){
+  openSheet('নতুন কর্মী',
+    '<label class="field"><span>নাম <b class="req">*</b></span>' +
+    '<input id="stName" placeholder="যেমন: রিফাত হোসেন" required></label>' +
+    '<label class="field"><span>ইমেইল <b class="req">*</b></span>' +
+    '<input id="stMail" type="email" inputmode="email" autocomplete="off" placeholder="rifat@example.com" required></label>' +
+    '<label class="field"><span>পাসওয়ার্ড <b class="req">*</b></span>' +
+    '<input id="stPass" type="text" autocomplete="off" placeholder="অন্তত ৬ অক্ষর" required>' +
+    '<span class="hint">সহজ কিছু দিন, কর্মীকে মুখে বলে দেবেন। সে পরে বদলাতে পারবে না — লাগলে আপনি নতুন দেবেন।</span></label>' +
+    '<div id="stErr"></div>' +
+    '<div class="hint">অ্যাকাউন্ট খোলার পর তাকে শুধু সাইটের লিংক, ইমেইল আর পাসওয়ার্ড দিলেই হবে। ' +
+    'সে সব কাস্টমার দেখতে পাবে, নিজের তোলা রেকর্ড ২৪ ঘণ্টা পর্যন্ত ঠিক করতে পারবে।</div>',
+    '<button class="btn gold block" id="stGo">অ্যাকাউন্ট খুলুন</button>');
+
+  $('#stGo').addEventListener('click', async () => {
+    const n = $('#stName').value.trim(), e = $('#stMail').value.trim(), pw = $('#stPass').value;
+    if (!n || !e || !pw){ toast('তিনটা ঘরই পূরণ করুন'); return; }
+    const btn = $('#stGo'); btn.disabled = true; btn.textContent = 'খোলা হচ্ছে…';
+    try{
+      const r = await Store.createStaff(n, e, pw);
+      closeSheet();
+      openSheet('অ্যাকাউন্ট খোলা হয়েছে',
+        '<div class="card"><div class="kv"><span class="k">নাম</span><span class="v">' + esc(n) + '</span></div>' +
+        '<div class="kv"><span class="k">ইমেইল</span><span class="v">' + esc(e) + '</span></div>' +
+        '<div class="kv"><span class="k">পাসওয়ার্ড</span><span class="v num">' + esc(pw) + '</span></div></div>' +
+        (r.needsConfirm
+          ? '<div class="warnbox" style="margin-top:12px"><b>ইমেইল নিশ্চিত করা দরকার</b>' +
+            'Supabase-এ ইমেইল যাচাই চালু আছে, তাই সে এখনই ঢুকতে পারবে না। ' +
+            'Supabase → Authentication → Sign In / Providers → <b>Confirm email</b> বন্ধ করে দিন, ' +
+            'তাহলে আর কারও জন্যই এই ঝামেলা থাকবে না।</div>'
+          : '<div class="hint" style="margin-top:12px">এখনই লগইন করতে পারবে।</div>') +
+        '<p class="muted">এই তথ্যটুকু তাকে WhatsApp-এ পাঠিয়ে দিন, সাথে সাইটের লিংক।</p>',
+        '<button class="btn sec block" id="stDone">ঠিক আছে</button>');
+      $('#stDone').addEventListener('click', () => { closeSheet(); setTimeout(openSettings, 80); });
+    }catch(err){
+      $('#stErr').innerHTML = '<div class="error-box">' + esc(err.message || 'হলো না') + '</div>';
+      btn.disabled = false; btn.textContent = 'অ্যাকাউন্ট খুলুন';
     }
   });
 }
@@ -1596,11 +1862,11 @@ async function paintStaff(){
   box.innerHTML = '<div class="card">' + rows.map(r =>
     '<div class="rrow"><span>' + esc(r.name || '—') +
     ' <span class="chip ' + (r.role === 'admin' ? 'gold' : 'cool') + '">' +
-    (r.role === 'admin' ? 'মালিক' : 'MDE') + '</span>' +
+    (r.role === 'admin' ? 'মালিক' : roleLabel()) + '</span>' +
     (r.active ? '' : ' <span class="chip bad">বন্ধ</span>') +
     '</span><span class="rn">' +
     bn(S.list.filter(c => c._by === r.id).length) + ' জন</span></div>').join('') + '</div>' +
-    '<div class="hint">নতুন কর্মী যোগ করতে Supabase → Authentication → Users → Add user।</div>';
+    '';
 }
 
 const BK_KEY = 'jara.lastBackup';
@@ -1703,7 +1969,7 @@ function exportXlsx(){
     'আইডি': c.id,
     'নাম': c.name || '', 'ধরন': c.type || '', 'মোবাইল': c.phone || '',
     'WhatsApp': c.waSame === false ? (c.whatsapp || '') : '',
-    'গ্রাম': c.village || '', 'ঠিকানা': c.address || '',
+    'ইউনিয়ন': c.union || '', 'গ্রাম': c.village || '', 'পাড়া': c.para || '', 'ঠিকানা': c.address || '',
     'তলা': c.floors || '', 'নির্মাণের অবস্থা': c.stage || '',
     'ইলেকট্রিক কাজ': c.elecStatus || '', 'মাল লাগবে': NEED_LABEL[String(c.needDays || '')] || '',
     'এখন মাল নেয়': c.supplierName || '', 'সেই দোকান': c.supplierShop || '',
@@ -1711,9 +1977,9 @@ function exportXlsx(){
     'হাতছাড়া হয়েছে যার কাছে': c.lostTo || '',
     'বিক্রি': c.saleAmount || '',
     'ল্যাটিটিউড': c.lat == null ? '' : c.lat, 'লংগিটিউড': c.lng == null ? '' : c.lng,
-    'চা-দাওয়াত': c.teaDate || '', 'পরের যোগাযোগ': c.nextDate || '',
+    'চা-কফির দাওয়াত': c.teaDate || '', 'পরের যোগাযোগ': c.nextDate || '',
     'শেষ যোগাযোগ': (c.lastContact || c.createdAt || '').slice(0, 10),
-    'চা-দাওয়াতের অবস্থা': TEA_LABEL[c.teaStatus || 'none'] || '',
+    'চা-কফির দাওয়াতের অবস্থা': TEA_LABEL[c.teaStatus || 'none'] || '',
     'কে তুলেছে': c.by || '',
     'নোট': c.notes || '',
   }));
@@ -1749,7 +2015,9 @@ function rowToCustomer(r, existing){
   const wa = cell(r, 'WhatsApp');
   c.waSame = !wa;
   c.whatsapp = wa || c.phone;
+  c.union   = cell(r, 'ইউনিয়ন');
   c.village = cell(r, 'গ্রাম');
+  c.para    = cell(r, 'পাড়া');
   c.address = cell(r, 'ঠিকানা');
   const fl = cell(r, 'তলা'); if (fl) c.floors = fl;
   if (cell(r, 'নির্মাণের অবস্থা')) c.stage = cell(r, 'নির্মাণের অবস্থা');
@@ -1762,9 +2030,9 @@ function rowToCustomer(r, existing){
   if (cell(r, 'বিক্রি')) c.saleAmount = cell(r, 'বিক্রি');
   const la = parseFloat(cell(r, 'ল্যাটিটিউড')), ln = parseFloat(cell(r, 'লংগিটিউড'));
   c.lat = isNaN(la) ? null : la; c.lng = isNaN(ln) ? null : ln;
-  if (cell(r, 'চা-দাওয়াত'))    c.teaDate  = cell(r, 'চা-দাওয়াত').slice(0, 10);
+  if (cell(r, 'চা-কফির দাওয়াত'))    c.teaDate  = cell(r, 'চা-কফির দাওয়াত').slice(0, 10);
   if (cell(r, 'পরের যোগাযোগ')) c.nextDate = cell(r, 'পরের যোগাযোগ').slice(0, 10);
-  const ts = XL_TEA[cell(r, 'চা-দাওয়াতের অবস্থা')]; if (ts) c.teaStatus = ts;
+  const ts = XL_TEA[cell(r, 'চা-কফির দাওয়াতের অবস্থা')]; if (ts) c.teaStatus = ts;
   if (cell(r, 'কে তুলেছে')) c.by = cell(r, 'কে তুলেছে');
   c.notes = cell(r, 'নোট');
   c.updatedAt = new Date().toISOString();
