@@ -337,3 +337,18 @@ main.flush{padding-left:0;padding-right:0}
 .pcell img{width:100%;height:100%;object-fit:cover;display:block}
 .pdel{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:8px;
   background:rgba(7,15,28,.72);color:#fff;font-size:12px;display:grid;place-items:center;line-height:1}
+
+/* ── লগইন ───────────────────────────────── */
+.login{position:fixed;inset:0;z-index:60;display:grid;place-items:center;
+  background:linear-gradient(165deg,var(--navy),#061324);
+  padding:24px max(18px,env(safe-area-inset-left,0px)) 24px max(18px,env(safe-area-inset-right,0px));
+  overflow-y:auto}
+.login-card{width:min(400px,100%);background:var(--surface);border-radius:18px;padding:26px 22px;
+  box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.login-mark{width:58px;height:58px;border-radius:18px;background:var(--gold);color:var(--navy);
+  display:grid;place-items:center;font-size:28px;font-weight:700;margin:0 auto}
+.login-card h1{margin:14px 0 2px;font-size:20px;text-align:center;font-weight:600}
+.login-card>p{margin:0 0 20px;text-align:center;color:var(--fg-3);font-size:12.5px}
+.login-note{margin:12px 0 0;text-align:center;color:var(--fg-3);font-size:11.5px}
+.error-box{background:var(--bad-bg);color:var(--bad);border-radius:var(--radius-sm);
+  padding:10px 12px;font-size:12.5px;margin-bottom:12px}

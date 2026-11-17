@@ -233,15 +233,41 @@ const S = {
   map: null,
   layer: null,
   routeIds: [],
+  me: null,
 };
 
 async function load(){
   S.list     = await Store.all();
   S.settings = await Store.getSettings();
 }
-async function persist(){
-  try { await Store.saveAll(S.list); }
-  catch(e){ toast('সংরক্ষণে সমস্যা হয়েছে'); }
+async function saveRec(rec){
+  try{
+    await Store.put(rec);
+    if (!S.list.some(x => x.id === rec.id)) S.list.unshift(rec);
+    return true;
+  }catch(e){
+    toast(e.message || 'সংরক্ষণ করা গেল না');
+    return false;
+  }
+}
+async function delRec(id){
+  try{
+    await Store.del(id);
+    S.list = S.list.filter(x => x.id !== id);
+    return true;
+  }catch(e){
+    toast(e.message || 'মোছা গেল না');
+    return false;
+  }
+}
+/* কর্মী এখনো এই রেকর্ড বদলাতে পারবে কি না */
+function canEdit(c){
+  if (!c) return true;
+  if (S.me && S.me.role === 'admin') return true;
+  if (Store.mode !== 'cloud') return true;
+  if (c._by && S.me && c._by !== S.me.id) return false;
+  if (c._editUntil) return Date.now() < new Date(c._editUntil).getTime();
+  return true;
 }
 function byId(id){ return S.list.find(x => x.id === id); }
 
@@ -847,6 +873,15 @@ function pinStateHTML(v){
 let FORMREC = null;
 
 function openForm(c){
+  if (c && !canEdit(c)){
+    openSheet('সম্পাদনা করা যাবে না',
+      '<div class="warnbox"><b>২৪ ঘণ্টার সময় পেরিয়ে গেছে</b>' +
+      'নতুন রেকর্ড তোলার পর ২৪ ঘণ্টা পর্যন্ত নিজে ঠিক করা যায়। এরপর শুধু মালিক বদলাতে পারেন।' +
+      (c._by && S.me && c._by !== S.me.id ? '<br><br>এই রেকর্ডটি অন্য কেউ তুলেছেন।' : '') +
+      '</div><p class="muted">কিছু ভুল থাকলে মালিককে বলুন। ফলো-আপ লেখা ও ভিজিটের তথ্য যোগ করা যাবে — সেটা বন্ধ নয়।</p>',
+      '<button class="btn sec block" data-close>বুঝেছি</button>');
+    return;
+  }
   FORMREC = c || { photos: [] };
   if (!FORMREC.photos) FORMREC.photos = [];
   openSheet(c ? 'তথ্য সম্পাদনা' : 'নতুন কাস্টমার', formHTML(c),
@@ -868,7 +903,8 @@ function openForm(c){
       try{
         const b = await shrink(f);
         const key = 'ph' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-        await photoPut(key, b);
+        if (Store.mode === 'cloud') await Store.putPhoto(key, b);
+        else await photoPut(key, b);
         FORMREC.photos.push(key);
       }catch(err){ toast('একটা ছবি নেওয়া গেল না'); }
     }
@@ -966,6 +1002,15 @@ function shrink(file, max = 1280, q = 0.68){
   });
 }
 
+async function photoSrc(key){
+  if (Store.mode === 'cloud'){
+    try{ const u = await Store.photoUrl(key); if (u) return u; }catch(e){}
+    return null;
+  }
+  const b = await photoGet(key);
+  return b ? URL.createObjectURL(b) : null;
+}
+
 async function paintPhotos(rec){
   const box = $('#photoList');
   if (!box) return;
@@ -973,12 +1018,12 @@ async function paintPhotos(rec){
   if (!ids.length){ box.innerHTML = '<p class="muted" style="margin:0">এখনো কোনো ছবি নেই।</p>'; return; }
   box.innerHTML = '';
   for (const id of ids){
-    const b = await photoGet(id);
+    const src = await photoSrc(id);
     const cell = document.createElement('div');
     cell.className = 'pcell';
-    if (b){
+    if (src){
       const im = document.createElement('img');
-      im.src = URL.createObjectURL(b); im.alt = 'বাড়ির ছবি';
+      im.src = src; im.alt = 'বাড়ির ছবি';
       cell.appendChild(im);
     } else {
       cell.innerHTML = '<span class="muted" style="font-size:11px">ছবি পাওয়া যায়নি</span>';
@@ -989,7 +1034,7 @@ async function paintPhotos(rec){
     del.onclick = async () => {
       rec.photos = (rec.photos || []).filter(x => x !== id);
       await photoDel(id); await paintPhotos(rec);
-      if (rec.id && byId(rec.id)) await persist();
+      if (rec.id && byId(rec.id)) await saveRec(rec);
     };
     cell.appendChild(del);
     box.appendChild(cell);
@@ -1147,7 +1192,7 @@ async function saveForm(c){
   rec.teaStatus = $('#f_teastat').value;
   rec.teaDate = $('#f_tea').value || '';
   rec.nextDate = $('#f_next').value || '';
-  if (!rec.by) rec.by = (S.settings.myName || '').trim();
+  if (!rec.by) rec.by = (S.me && S.me.name) || (S.settings.myName || '').trim();
   rec.notes = $('#f_notes').value.trim();
 
   if (type === TYPES[0]){
@@ -1169,7 +1214,8 @@ async function saveForm(c){
       addEvent(rec, 'stage', oldStage + ' → ' + rec.stage);
   }
 
-  await persist();
+  const ok = await saveRec(rec);
+  if (!ok){ if (isNew) S.list = S.list.filter(x => x.id !== rec.id); return; }
   closeSheet();
   toast(isNew ? 'যোগ হয়েছে' : 'সংরক্ষিত হয়েছে');
   render();
@@ -1181,8 +1227,7 @@ async function removeCustomer(c){
     '<div class="btnrow"><button class="btn sec" data-close>থাক</button>' +
     '<button class="btn danger" id="delYes">হ্যাঁ, মুছুন</button></div>');
   $('#delYes').addEventListener('click', async () => {
-    S.list = S.list.filter(x => x.id !== c.id);
-    await persist(); closeSheet(); toast('মুছে ফেলা হয়েছে'); render();
+    if (await delRec(c.id)){ closeSheet(); toast('মুছে ফেলা হয়েছে'); render(); }
   });
 }
 
@@ -1282,7 +1327,7 @@ function openDetail(id){
   if (lost) lost.addEventListener('click', () => markLost(c));
   if (re)   re.addEventListener('click', async () => {
     c.status = 'open'; c.lostTo = ''; addEvent(c, 'note', 'আবার চালু');
-    await persist(); closeSheet(); render(); toast('আবার চালু হয়েছে');
+    await saveRec(c); closeSheet(); render(); toast('আবার চালু হয়েছে');
   });
 }
 
@@ -1293,14 +1338,14 @@ async function paintDetailPhotos(c){
   if (!box) return;
   box.innerHTML = '';
   for (const id of c.photos){
-    const b = await photoGet(id);
+    const src = await photoSrc(id);
     const cell = document.createElement('div');
     cell.className = 'pcell';
-    if (b){
+    if (src){
       const im = document.createElement('img');
-      im.src = URL.createObjectURL(b); im.alt = 'বাড়ির ছবি';
+      im.src = src; im.alt = 'বাড়ির ছবি';
       cell.appendChild(im);
-    } else cell.innerHTML = '<span class="muted" style="font-size:11px">এই ফোনে নেই</span>';
+    } else cell.innerHTML = '<span class="muted" style="font-size:11px">ছবি পাওয়া যায়নি</span>';
     box.appendChild(cell);
   }
 }
@@ -1365,7 +1410,7 @@ function logAction(c, preset){
     if (['invited','promised','noshow'].includes(newTea)) c.teaDate = $('#lgTeaDate').value || '';
 
     c.nextDate = $('#lgNext').value || '';
-    await persist(); closeSheet();
+    await saveRec(c); closeSheet();
     toast(c.nextDate ? 'লেখা হয়েছে — পরের তারিখ ' + banglaDate(c.nextDate) : 'লেখা হয়েছে');
     render();
 
@@ -1395,7 +1440,7 @@ function markWon(c){
     c.saleAmount = $('#wAmt').value;
     c.saleItems = $('#wItems').value.trim();
     addEvent(c, 'won', c.saleAmount ? money(c.saleAmount) : '');
-    await persist(); closeSheet(); toast('অভিনন্দন!'); render();
+    await saveRec(c); closeSheet(); toast('অভিনন্দন!'); render();
   });
 }
 
@@ -1411,7 +1456,7 @@ function markLost(c){
     c.status = 'lost';
     c.lostTo = $('#lTo').value.trim();
     addEvent(c, 'lost', [c.lostTo, $('#lWhy').value.trim()].filter(Boolean).join(' — '));
-    await persist(); closeSheet(); render();
+    await saveRec(c); closeSheet(); render();
   });
 }
 
@@ -1419,9 +1464,24 @@ function markLost(c){
 
 function openSettings(){
   const s = S.settings;
+  const me = S.me;
+  const cloud = Store.mode === 'cloud';
+
   openSheet('সেটিংস',
+    (me ? '<div class="card" style="margin-bottom:14px">' +
+      '<div class="kv"><span class="k">আপনি</span><span class="v">' + esc(me.name || '—') +
+      ' <span class="chip ' + (me.role === 'admin' ? 'gold' : 'cool') + '">' +
+      (me.role === 'admin' ? 'মালিক' : 'MDE') + '</span></span></div>' +
+      (me.email ? '<div class="kv"><span class="k">ইমেইল</span><span class="v">' + esc(me.email) + '</span></div>' : '') +
+      '<div class="kv"><span class="k">ডেটা</span><span class="v">' +
+        (cloud ? '<span class="chip ok">ক্লাউডে — সব ফোনে এক</span>'
+               : '<span class="chip idle">শুধু এই ফোনে</span>') + '</span></div>' +
+      '</div>' : '') +
+
     '<label class="field"><span>আপনার নাম</span>' +
-    '<input id="s_name" value="' + esc(s.myName || '') + '" placeholder="রেকর্ডে কার তোলা বোঝা যাবে"></label>' +
+    '<input id="s_name" value="' + esc((me && me.name) || s.myName || '') + '" placeholder="রেকর্ডে কার তোলা বোঝা যাবে"' +
+    (cloud ? ' disabled' : '') + '></label>' +
+    (cloud ? '<div class="hint" style="margin-top:-8px;margin-bottom:14px">নাম বদলাতে মালিককে বলুন।</div>' : '') +
 
     '<div class="field"><span>দোকানের অবস্থান</span>' +
     '<div class="card" style="padding:11px;margin-bottom:8px" id="shopState">' +
@@ -1440,7 +1500,13 @@ function openSettings(){
     '<button class="btn sec" id="s_json">ফাইল ব্যাকআপ</button></div>' +
     '<label class="btn sec block" style="margin-bottom:9px">ফাইল থেকে ফেরান' +
     '<input type="file" id="s_restore" accept=".json" hidden></label>' +
-    '<div class="hint">এখন ডেটা শুধু এই ফোনে আছে। নিয়মিত ব্যাকআপ নিয়ে রাখুন — ফোন হারালে বা ব্রাউজারের ডেটা মুছলে সব চলে যাবে।</div>',
+    '<div class="hint">' + (cloud
+      ? 'ডেটা ক্লাউডে আছে, সব ফোনে এক। তবু মাসে একবার ব্যাকআপ নামিয়ে রাখা ভালো।'
+      : 'এখন ডেটা শুধু এই ফোনে আছে। নিয়মিত ব্যাকআপ নিন — ফোন হারালে বা ব্রাউজারের ডেটা মুছলে সব চলে যাবে।') + '</div>' +
+
+    (cloud ? '<div class="sec-h" style="margin-top:16px"><h2>অ্যাকাউন্ট</h2></div>' +
+      '<div id="staffBox"></div>' +
+      '<button class="btn sec block" id="s_out" style="margin-top:9px">লগআউট</button>' : ''),
 
     '<button class="btn gold block" id="s_save">সংরক্ষণ</button>');
 
@@ -1459,15 +1525,44 @@ function openSettings(){
        { enableHighAccuracy: true, timeout: 15000 });
   });
 
+  if (cloud){
+    $('#s_out').addEventListener('click', async () => {
+      await Store.signOut();
+      location.reload();
+    });
+    if (me && me.role === 'admin') paintStaff();
+  }
+
   $('#s_xls').addEventListener('click', exportXlsx);
   $('#s_json').addEventListener('click', exportJson);
   $('#s_restore').addEventListener('change', e => { if (e.target.files[0]) importJson(e.target.files[0]); });
   $('#s_save').addEventListener('click', async () => {
-    S.settings.myName = $('#s_name').value.trim();
+    if (!cloud) S.settings.myName = $('#s_name').value.trim();
     S.settings.perFloorValue = Number($('#s_floor').value) || 0;
-    await Store.setSettings(S.settings);
-    closeSheet(); toast('সেটিংস সংরক্ষিত'); render();
+    try{
+      await Store.setSettings(S.settings);
+      closeSheet(); toast('সেটিংস সংরক্ষিত'); render();
+    }catch(e){
+      toast(/অনুমতি|row-level/i.test(e.message || '') ? 'সেটিংস শুধু মালিক বদলাতে পারেন' : (e.message || 'সংরক্ষণ হয়নি'));
+    }
   });
+}
+
+async function paintStaff(){
+  const box = $('#staffBox');
+  if (!box) return;
+  box.innerHTML = '<p class="muted" style="margin:0">কর্মীর তালিকা আনা হচ্ছে…</p>';
+  let rows = [];
+  try{ rows = await Store.staff(); }catch(e){}
+  if (!rows.length){ box.innerHTML = '<p class="muted" style="margin:0">কেউ নেই।</p>'; return; }
+  box.innerHTML = '<div class="card">' + rows.map(r =>
+    '<div class="rrow"><span>' + esc(r.name || '—') +
+    ' <span class="chip ' + (r.role === 'admin' ? 'gold' : 'cool') + '">' +
+    (r.role === 'admin' ? 'মালিক' : 'MDE') + '</span>' +
+    (r.active ? '' : ' <span class="chip bad">বন্ধ</span>') +
+    '</span><span class="rn">' +
+    bn(S.list.filter(c => c._by === r.id).length) + ' জন</span></div>').join('') + '</div>' +
+    '<div class="hint">নতুন কর্মী যোগ করতে Supabase → Authentication → Users → Add user।</div>';
 }
 
 function download(blob, filename){
@@ -1528,17 +1623,18 @@ function importJson(file){
       '<button class="btn gold" id="imGo">ফেরান</button></div>');
 
     $('#imGo').addEventListener('click', async () => {
-      fresh.forEach(x => S.list.push(x));
-      newer.forEach(x => {
+      let done = 0, failed = 0;
+      for (const x of fresh.concat(newer)){
         const i = S.list.findIndex(y => y.id === x.id);
         if (i >= 0) S.list[i] = x;
-      });
+        if (await saveRec(x)) done++; else failed++;
+      }
       if ($('#imSet').checked && d.settings){
         S.settings = Object.assign({}, S.settings, d.settings);
-        await Store.setSettings(S.settings);
+        try{ await Store.setSettings(S.settings); }catch(e){}
       }
-      await persist(); closeSheet(); render();
-      toast(bn(fresh.length) + ' টি নতুন, ' + bn(newer.length) + ' টি হালনাগাদ হয়েছে');
+      closeSheet(); render();
+      toast(bn(done) + ' টি ফেরানো হয়েছে' + (failed ? ', ' + bn(failed) + ' টি পারেনি' : ''));
     });
   };
   r.readAsText(file);
@@ -1667,28 +1763,108 @@ function useHere(){
      { enableHighAccuracy: true, timeout: 15000 });
 }
 
-/* ══════════ ১৫. চালু ══════════ */
+/* ══════════ ১৫. লগইন ও চালু ══════════ */
+
+function showLogin(msg){
+  $('#boot').hidden = true;
+  $('#login').hidden = false;
+  if (msg) showLoginError(msg);
+  setTimeout(() => { const e = $('#liEmail'); if (e) e.focus(); }, 120);
+}
+function showLoginError(m){
+  const b = $('#liErr');
+  b.textContent = m; b.hidden = false;
+}
+
+async function startApp(){
+  $('#boot').hidden = false;
+  try{
+    await load();
+  }catch(e){
+    if (Store.mode === 'cloud' && CONFIG.allowLocalFallback){
+      $('#boot').hidden = true;
+      toast(e.message || 'ডেটা আনা গেল না');
+      S.list = S.list || []; S.settings = S.settings || Object.assign({}, DEFAULT_SETTINGS);
+    } else {
+      $('#boot').hidden = true;
+      showLogin(e.message || 'ডেটা আনা গেল না');
+      return;
+    }
+  }
+  $('#boot').hidden = true;
+  $('#login').hidden = true;
+  $('#topbar').hidden = false;
+  $('#app').hidden = false;
+  $('#tabbar').hidden = false;
+  render();
+}
+
+/* অন্য ফোনে কিছু বদলালে এখানে ফিরলেই নতুন তথ্য আসবে */
+let lastSync = Date.now();
+function wireSync(){
+  if (Store.mode !== 'cloud') return;
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden) return;
+    if (Date.now() - lastSync < 20000) return;
+    lastSync = Date.now();
+    try{
+      S.list = await Store.all();
+      if (!$('#sheetWrap').hidden || !$('#picker').hidden) return;
+      render();
+    }catch(e){}
+  });
+}
 
 document.addEventListener('click', e => {
   if (e.target.closest('[data-close]')) closeSheet();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && !$('#sheetWrap').hidden) closeSheet();
+  if (e.key !== 'Escape') return;
+  if (!$('#picker').hidden) closePinPicker();
+  else if (!$('#sheetWrap').hidden) closeSheet();
 });
 
 (async function boot(){
-  try{ await load(); }
-  catch(e){ S.list = []; S.settings = Object.assign({}, DEFAULT_SETTINGS); }
-
   document.querySelectorAll('.tabbar button').forEach(b =>
     b.addEventListener('click', () => { S.view = b.dataset.view; render(); }));
   $('#btnAdd').addEventListener('click', () => openForm(null));
 
-  $('#boot').hidden = true;
-  $('#topbar').hidden = false;
-  $('#app').hidden = false;
-  $('#tabbar').hidden = false;
-  render();
+  const form = $('#loginForm');
+  form.addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const btn = $('#liGo');
+    $('#liErr').hidden = true;
+    btn.disabled = true; btn.textContent = 'দেখা হচ্ছে…';
+    try{
+      S.me = await Store.signIn($('#liEmail').value, $('#liPass').value);
+      $('#login').hidden = true;
+      await startApp();
+      wireSync();
+    }catch(e){
+      showLoginError(e.message || 'লগইন হলো না');
+    }finally{
+      btn.disabled = false; btn.textContent = 'লগইন';
+    }
+  });
+
+  try{
+    await Store.init();
+  }catch(e){
+    showLogin('ডেটাবেসে পৌঁছানো গেল না — ' + (e.message || ''));
+    return;
+  }
+
+  try{
+    S.me = await Store.me();
+  }catch(e){
+    showLogin(e.message);
+    return;
+  }
+
+  if (Store.needsLogin && !S.me){ showLogin(); return; }
+
+  await startApp();
+  wireSync();
 
   if ('serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js').catch(() => {});
