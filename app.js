@@ -2355,6 +2355,17 @@ function installHelp(){
     '<button class="btn sec block" data-close>বুঝেছি</button>');
 }
 
+function showUpdateBar(){
+  if ($('#updBar')) return;
+  const d = document.createElement('div');
+  d.id = 'updBar';
+  d.className = 'updbar';
+  d.innerHTML = '<span>নতুন সংস্করণ এসেছে</span>' +
+                '<button class="btn gold" id="updGo">এখন নিন</button>';
+  document.body.appendChild(d);
+  $('#updGo').addEventListener('click', () => location.reload());
+}
+
 /* ══════════ ১৫. লগইন ও চালু ══════════ */
 
 function showLogin(msg){
@@ -2429,7 +2440,23 @@ document.addEventListener('keydown', e => {
   // আগে এটা শেষে ছিল — লগইন পর্দায় আটকে গেলে কখনো চালুই হতো না,
   // ফলে ব্রাউজার ইনস্টলের সুযোগ দিত না।
   if ('serviceWorker' in navigator){
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      // অ্যাপে ফিরলেই নতুন সংস্করণ এসেছে কি না দেখে নেয়
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) reg.update().catch(() => {});
+      });
+      setInterval(() => reg.update().catch(() => {}), 30 * 60 * 1000);
+    }).catch(() => {});
+
+    let swapped = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (swapped) return;
+      swapped = true;
+      // ফর্ম খোলা থাকলে জোর করে রিলোড করলে লেখা তথ্য হারাবে
+      const busy = !$('#sheetWrap').hidden || !$('#picker').hidden || !$('#vpick').hidden;
+      if (busy) showUpdateBar();
+      else location.reload();
+    });
   }
 
   document.querySelectorAll('.tabbar button').forEach(b =>
