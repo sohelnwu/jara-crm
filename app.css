@@ -422,3 +422,24 @@ main.flush{padding-left:0;padding-right:0}
 .linkbtn{background:none;border:0;padding:0;color:var(--navy-3);font-weight:600;font-size:13.5px}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .linkbtn{color:var(--gold)}}
 :root[data-theme="dark"] .linkbtn{color:var(--gold)}
+
+/* ── চাপ দেওয়া যায় এমন ঘর ──────────────── */
+.stat.tap{text-align:left;cursor:pointer;transition:border-color .12s}
+.stat.tap:active{background:var(--surface-2)}
+.stat.tap.on{border-color:var(--navy-3);box-shadow:inset 0 0 0 1px var(--navy-3)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .stat.tap.on{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold)}}
+:root[data-theme="dark"] .stat.tap.on{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold)}
+
+/* ── প্রোফাইল ছবি ──────────────────────── */
+.avrow{display:flex;gap:12px;align-items:center}
+.avbox{width:74px;height:74px;flex:0 0 74px;border-radius:50%;overflow:hidden;
+  background:var(--surface-2);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;text-align:center}
+.avbox span{font-size:10.5px;color:var(--muted);line-height:1.3;padding:4px}
+.avbox img{width:100%;height:100%;object-fit:cover;display:block}
+.avact{display:flex;flex-direction:column;gap:7px;flex:1;min-width:0}
+.avact .btn{width:100%}
+.avbox.sm{width:56px;height:56px;flex:0 0 56px}
+.dhead.withav{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start}
+.dhead.withav .avbox{grid-row:1/4}
+.dhead.withav h3,.dhead.withav .dsub,.dhead.withav .drow{grid-column:2}

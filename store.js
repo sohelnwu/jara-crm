@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS = {
   shopLng: 89.6128,
   shopPinned: false,
   perFloorValue: 0,
+  shareRate: 0,
   myName: '',
 };
 

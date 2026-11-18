@@ -44,6 +44,20 @@ function heat(c){
 }
 
 /* এই কারিগরের মাধ্যমে আসা কাস্টমার */
+const esc0 = x => String(x == null ? '' : x);
+const bkashOf = c => String(c.bkash || c.phone || '').replace(/\D/g, '');
+const paidTotal = c => (c.pays || []).reduce((n, x) => n + (Number(x.amt) || 0), 0);
+const paysOf = c => (c.pays || []).slice().sort((a, b) => String(a.t).localeCompare(String(b.t)));
+
+/* মালিকের নিজের হিসাব — এই হারটা কোথাও কারিগরকে দেখানো হয় না */
+function shareCalc(c){
+  const rate = Number(S.settings.shareRate || 0);
+  const sold = broughtValue(c.id);
+  const earn = rate ? Math.round(sold * rate / 100) : 0;
+  const paid = paidTotal(c);
+  return { rate, sold, earn, paid, due: earn - paid };
+}
+
 function broughtBy(id){ return S.list.filter(x => x.refBy === id); }
 function broughtValue(id){ return broughtBy(id).reduce((n, x) => n + salesTotal(x), 0); }
 function channelList(){
@@ -144,6 +158,7 @@ const EVENT_LABEL = {
   invite: 'চা-কফির দাওয়াত দেওয়া হয়েছে', promise: 'আসার তারিখ দিয়েছেন',
   ref: 'কাজ এনে দিয়েছেন',
   noshow: 'আসেননি', reschedule: 'তারিখ পিছিয়েছে',
+  pay: 'টাকা পাঠানো হয়েছে', stmt: 'হিসাব পাঠানো হয়েছে',
 };
 
 /* চা-কফির দাওয়াতের ধাপ — মাঠ থেকে দোকান পর্যন্ত পুরো পথ */
@@ -344,6 +359,7 @@ const S = {
   q: '',
   filter: 'all',
   period: 'week',
+  fup: 'all',
   here: null,          // current GPS, when granted
   map: null,
   layer: null,
@@ -573,12 +589,31 @@ function viewFollow(){
   const noshow = live.filter(c => c.teaStatus === 'noshow');
   const noplan = live.filter(c => !dueDate(c));
 
+  const F = S.fup || 'all';
+  const tile = (k, label, n, col) =>
+    '<button class="stat tap' + (F === k ? ' on' : '') + '" data-fup="' + k + '">' +
+    '<div class="k">' + label + '</div><div class="v"' + (col ? ' style="color:' + col + '"' : '') + '>' +
+    bn(n) + '</div></button>';
+
   let h = '<div class="stats">' +
-    '<div class="stat"><div class="k">বাকি পড়েছে</div><div class="v" style="color:var(--hot)">' + bn(g.overdue.length) + '</div></div>' +
-    '<div class="stat"><div class="k">আজ</div><div class="v">' + bn(g.today.length) + '</div></div>' +
-    '<div class="stat"><div class="k">আগামী ৭ দিন</div><div class="v">' + bn(g.week.length) + '</div></div>' +
-    '<div class="stat"><div class="k">দোকানে আসার কথা</div><div class="v">' + bn(coming.length) + '</div></div>' +
-    '</div>';
+    tile('overdue', 'বাকি পড়েছে', g.overdue.length, 'var(--hot)') +
+    tile('today', 'আজ', g.today.length) +
+    tile('week', 'আগামী ৭ দিন', g.week.length) +
+    tile('coming', 'দোকানে আসার কথা', coming.length) +
+    '</div>' +
+    (F !== 'all' ? '<button class="btn sec block" id="fupAll">সব দেখুন</button>' : '');
+
+  /* একটা ঘরে চাপ দিলে শুধু সেটুকুই দেখাব */
+  if (F !== 'all'){
+    const pick = F === 'coming' ? coming : g[F];
+    const label = { overdue: 'বাকি পড়েছে', today: 'আজ ধরতে হবে',
+                    week: 'আগামী ৭ দিন', coming: 'দোকানে আসার কথা' }[F];
+    h += '<div class="sec-h"><h2>' + label + '</h2><span class="more">' + bn(pick.length) + ' জন</span></div>';
+    h += pick.length
+      ? '<div class="card pad0">' + pick.map(followRow).join('') + '</div>'
+      : '<div class="card"><div class="empty">এখানে কেউ নেই।</div></div>';
+    return h;
+  }
 
   const block = (title, arr, note) => arr.length
     ? '<div class="sec-h"><h2>' + title + '</h2><span class="more">' + bn(arr.length) + ' জন</span></div>' +
@@ -885,6 +920,40 @@ function viewReport(){
       '<div class="bar"><i style="width:' + (d.n / vmax * 100) + '%"></i></div></div>').join('')
       : '<div class="empty">তথ্য নেই</div>') + '</div>';
 
+  /* ─── কারিগরদের টপ লিস্ট — কে কত কাজ এনে দিয়েছে ─── */
+  const tops = S.list.filter(c => isChannel(c.type))
+    .map(c => ({ c, n: broughtBy(c.id).length, v: broughtValue(c.id) }))
+    .filter(x => x.n > 0)
+    .sort((a, b) => b.v - a.v || b.n - a.n);
+  const tmax = tops.length ? (tops[0].v || 1) : 1;
+  const rate0 = Number(S.settings.shareRate || 0);
+  h += '<div class="sec-h"><h2>কারিগরদের টপ লিস্ট</h2>' +
+       '<span class="more">কে কত কাজ এনেছে</span></div><div class="card">' +
+    (tops.length ? tops.slice(0, 20).map((x, i) => {
+      const sh = shareCalc(x.c);
+      return '<div style="padding:9px 0;border-bottom:1px solid var(--line-soft)">' +
+        '<div class="rrow" style="border:0;padding:0 0 6px">' +
+        '<span><b>' + bn(i + 1) + '.</b> <button class="linkbtn" data-open="' + esc(x.c.id) + '">' +
+          esc(x.c.name || 'নামহীন') + '</button></span>' +
+        '<span class="rn">' + bn(x.n) + ' জন · ' + money(x.v) + '</span></div>' +
+        '<div class="bar"><i style="width:' + ((x.v || 0) / tmax * 100) + '%"></i></div>' +
+        (rate0 ? '<div class="rrow" style="border:0;padding:5px 0 0"><span class="muted" style="font-size:11.5px">' +
+          'জমা ' + money(sh.earn) + ' · পাঠানো ' + money(sh.paid) + '</span>' +
+          (sh.due > 0 ? '<span class="chip hot">বাকি ' + money(sh.due) + '</span>' : '<span class="chip ok">মিটে গেছে</span>') +
+          '</div>' : '') +
+        '</div>';
+    }).join('')
+      : '<div class="empty"><strong>এখনো কেউ কাউকে আনেননি</strong>' +
+        'নতুন কাস্টমার তোলার সময় “কে পরিচয় করিয়ে দিয়েছে” ঘরে কারিগরের নাম বাছলে এই তালিকা নিজে থেকেই তৈরি হবে।</div>') +
+    '</div>';
+
+  if (rate0){
+    const totDue = tops.reduce((n, x) => n + Math.max(0, shareCalc(x.c).due), 0);
+    if (totDue) h += '<div class="card"><div class="k muted">সব কারিগরের বাকি</div>' +
+      '<div class="v num" style="font-size:24px;font-weight:700;color:var(--hot)">' + money(totDue) + '</div>' +
+      '<div class="hint">আজই মিটিয়ে দিলে পরের কাজের খবর সবার আগে আপনার কাছে আসবে।</div></div>';
+  }
+
   // competitors
   const comp = {};
   all.forEach(c => {
@@ -1047,6 +1116,10 @@ function formHTML(c){
 
     '<label class="field"><span>কী সুবিধা দেওয়া হচ্ছে</span>' +
     '<input id="f_perk" value="' + esc(v.perk || '') + '" placeholder="কারিগর দাম / বাকির সুবিধা / কমিশন"></label>' +
+
+    '<label class="field"><span>বিকাশ / নগদ নম্বর</span>' +
+    '<input id="f_bkash" type="tel" inputmode="numeric" value="' + esc(v.bkash || '') + '" placeholder="মোবাইল নম্বরই হলে ফাঁকা রাখুন">' +
+    '<span class="hint">লোক এনে দিলে এই নম্বরেই টাকা পাঠাবেন। ফাঁকা থাকলে উপরের মোবাইল নম্বর ধরা হবে।</span></label>' +
   '</div>' +
 
   '<div id="cblock"' + ((v.type || TYPES[0]) !== TYPES[0] ? ' hidden' : '') + '>' +
@@ -1089,6 +1162,7 @@ function formHTML(c){
   '<input id="f_next" type="date" value="' + esc(v.nextDate || (c ? '' : plusDays(7))) + '">' +
   '<span class="hint">তারিখ না দিলে ফলো-আপের তালিকায় উঠবে না।</span></label>' +
 
+  avatarBlockHTML(v) +
   photoBlockHTML(v) +
 
   '<label class="field"><span>নোট</span>' +
@@ -1153,6 +1227,29 @@ function openForm(c){
     usedLabel: 'আগে লেখা পাড়া',
     onPick: v2 => setPick('para', v2),
   }));
+
+  paintAvatar(FORMREC);
+  $('#f_avatar').addEventListener('change', async e => {
+    const f = (e.target.files || [])[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!$('#f_aconsent').checked){ toast('আগে অনুমতির ঘরে টিক দিন'); return; }
+    toast('ছবি যোগ হচ্ছে…');
+    try{
+      const b = await shrink(f, 640, 0.72);
+      const key = 'av' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      if (Store.mode === 'cloud') await Store.putPhoto(key, b);
+      else await photoPut(key, b);
+      FORMREC.avatar = key;
+      await paintAvatar(FORMREC);
+      $('#avDel').hidden = false;
+    }catch(err){ toast('ছবি নেওয়া গেল না'); }
+  });
+  $('#avDel').addEventListener('click', async () => {
+    FORMREC.avatar = '';
+    await paintAvatar(FORMREC);
+    $('#avDel').hidden = true;
+  });
 
   paintPhotos(FORMREC);
   $('#f_photo').addEventListener('change', async e => {
@@ -1301,6 +1398,29 @@ async function paintPhotos(rec){
     cell.appendChild(del);
     box.appendChild(cell);
   }
+}
+
+function avatarBlockHTML(v){
+  return '<div class="field"><span>প্রোফাইল ছবি</span>' +
+    '<div class="avrow">' +
+      '<div class="avbox" id="avBox"><span>ছবি নেই</span></div>' +
+      '<div class="avact">' +
+        '<label class="btn sec">📷 ছবি তুলুন' +
+        '<input type="file" id="f_avatar" accept="image/*" capture="environment" hidden></label>' +
+        '<button type="button" class="btn sec" id="avDel"' + (v.avatar ? '' : ' hidden') + '>সরান</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="checkline" style="margin-top:9px"><input type="checkbox" id="f_aconsent"' +
+      (v.aconsent ? ' checked' : '') + '>' +
+    '<span>ছবি তোলার মুখের অনুমতি নেওয়া হয়েছে</span></div>' +
+    '<span class="hint">মুখ দেখে চেনা যায় — নতুন কর্মী এলেও কারিগরকে চিনতে পারবে। অনুমতি ছাড়া কারও ছবি তুলবেন না।</span></div>';
+}
+
+async function paintAvatar(rec){
+  const box = $('#avBox'); if (!box) return;
+  if (!rec.avatar){ box.innerHTML = '<span>ছবি নেই</span>'; return; }
+  const src = await photoSrc(rec.avatar);
+  box.innerHTML = src ? '<img src="' + src + '" alt="">' : '<span>ছবি পাওয়া গেল না</span>';
 }
 
 function photoBlockHTML(v){
@@ -1497,6 +1617,9 @@ async function saveForm(c){
   rec.supplierName = $('#f_supplier').value.trim();
   rec.supplierShop = $('#f_supshop').value.trim();
   rec.consent  = $('#f_consent').checked;
+  rec.aconsent = $('#f_aconsent').checked;
+  rec.avatar   = (FORMREC && FORMREC.avatar) || '';
+  rec.bkash    = ($('#f_bkash') ? $('#f_bkash').value.trim() : (rec.bkash || ''));
   rec.photos   = (FORMREC && FORMREC.photos) ? FORMREC.photos.slice() : (rec.photos || []);
   rec.teaStatus = $('#f_teastat').value;
   rec.teaDate = $('#f_tea').value || '';
@@ -1567,7 +1690,9 @@ function openDetail(id){
 
   const kv = (k, v) => v ? '<div class="kv"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>' : '';
 
-  let body = '<div class="dhead"><h3>' + esc(c.name || 'নামহীন') + '</h3>' +
+  let body = '<div class="dhead' + (c.avatar ? ' withav' : '') + '">' +
+    (c.avatar ? '<div class="avbox sm" id="dAv"></div>' : '') +
+    '<h3>' + esc(c.name || 'নামহীন') + '</h3>' +
     '<div class="dsub">' + esc([c.type, placeText(c, true)].filter(Boolean).join(' · ')) + '</div>' +
     '<div class="drow">' +
       (c.status === 'won' ? '<span class="chip ok">কাজ পেয়েছি</span>'
@@ -1641,6 +1766,36 @@ function openDetail(id){
       : '<div class="card"><div class="empty"><strong>এখনো কাউকে আনেননি</strong>' +
         'নতুন কাস্টমার তোলার সময় “কে পরিচয় করিয়ে দিয়েছে” ঘরে ইনার নাম বাছলে এখানে জমা হবে।</div></div>';
     body += '<button class="btn gold block" id="kAddRef" style="margin-top:9px">＋ এর আনা নতুন কাস্টমার</button>';
+
+    /* ─── অংশীদারের খাতা ─── */
+    const sh = shareCalc(c);
+    const pays = paysOf(c);
+    body += '<div class="sec-h" style="margin-top:16px"><h2>অংশীদারের খাতা</h2>' +
+      '<span class="more">শুধু আপনি দেখছেন</span></div>' +
+      '<div class="card">' +
+        kv('বিকাশ / নগদ', bkashOf(c) ? '<span class="num">' + esc(bkashOf(c)) + '</span>' +
+            (c.bkash ? '' : ' <span class="chip idle">মোবাইল নম্বর</span>') : '') +
+        kv('এর মাধ্যমে বিক্রি', money(sh.sold)) +
+        (sh.rate
+          ? kv('জমা হয়েছে', '<b>' + money(sh.earn) + '</b> <span class="chip cool">' + bn(sh.rate) + '%</span>')
+          : '<div class="kv"><span class="k">জমা হয়েছে</span><span class="v muted">সেটিংসে হার বসাননি</span></div>') +
+        kv('পাঠানো হয়েছে', money(sh.paid)) +
+        (sh.rate ? '<div class="kv"><span class="k">বাকি</span><span class="v"><b style="color:' +
+            (sh.due > 0 ? 'var(--hot)' : 'var(--ok)') + '">' + money(Math.max(0, sh.due)) +
+            '</b></span></div>' : '') +
+      '</div>' +
+      '<div class="btnrow" style="margin-top:9px">' +
+      '<button class="btn gold" id="kPay">৳ টাকা পাঠিয়েছি</button>' +
+      '<button class="btn sec" id="kStmt">হিসাব পাঠান</button></div>';
+
+    if (pays.length){
+      body += '<div class="card pad0" style="margin-top:9px"><div class="tl" style="padding:10px 12px">' +
+        pays.slice().reverse().map((pp, i) =>
+          '<div class="tli"><div class="tt"><b>' + money(pp.amt) + '</b>' +
+          (pp.note ? ' — ' + esc(pp.note) : '') + '</div>' +
+          '<div class="td">' + banglaDate(pp.t) + '</div></div>').join('') +
+        '</div></div>';
+    }
   }
 
   const sl = salesOf(c);
@@ -1676,6 +1831,10 @@ function openDetail(id){
 
   const why = $('#whyScore');
   if (why) why.addEventListener('click', () => explainScore(c));
+  if (c.avatar) photoSrc(c.avatar).then(src => {
+    const el = $('#dAv');
+    if (el && src) el.innerHTML = '<img src="' + src + '" alt="">';
+  });
   if ((c.photos || []).length) paintDetailPhotos(c);
   $('#editC').addEventListener('click', () => { closeSheet(); setTimeout(() => openForm(c), 60); });
   const pn = $('#pinNow');
@@ -1690,6 +1849,9 @@ function openDetail(id){
     closeSheet();
     setTimeout(() => { openForm(null); const r = $('#f_refby'); if (r) r.value = c.id; }, 80);
   });
+  const kp = $('#kPay');  if (kp) kp.addEventListener('click', () => openPay(c));
+  const ks = $('#kStmt'); if (ks) ks.addEventListener('click', () => openStmt(c));
+
   const won = $('#mWon'), lost = $('#mLost'), re = $('#mReopen'), more = $('#mMore');
   if (won)  won.addEventListener('click', () => addSale(c, true));
   if (more) more.addEventListener('click', () => addSale(c, false));
@@ -1701,6 +1863,112 @@ function openDetail(id){
 }
 
 
+
+/* ── টাকা পাঠানো হয়েছে ── */
+function openPay(c){
+  const sh = shareCalc(c);
+  const sug = Math.max(0, Math.round(sh.due / 10) * 10);   // দশের ঘরে গোল করা
+  openSheet('টাকা পাঠানো হয়েছে',
+    '<p class="muted" style="margin-top:0">' + esc(c.name || 'নামহীন') +
+      ' — বিকাশ <span class="num">' + esc(bkashOf(c) || 'নম্বর নেই') + '</span></p>' +
+    (sh.rate && sh.due > 0
+      ? '<div class="warnbox"><b>বাকি ' + money(sh.due) + '</b>' +
+        'এখন পাঠালে খাতা পরিষ্কার হয়ে যাবে। বিকাশ করার পরেই এখানে তুলে রাখুন, নইলে হিসাব মিলবে না।</div>'
+      : '') +
+    '<label class="field"><span>কত টাকা পাঠিয়েছেন</span>' +
+    '<input id="p_amt" type="number" inputmode="numeric" min="0" value="' + (sug || '') + '" placeholder="যেমন ২০০"></label>' +
+    '<label class="field"><span>কোন তারিখে</span>' +
+    '<input id="p_date" type="date" value="' + todayISO() + '"></label>' +
+    '<label class="field"><span>নোট</span>' +
+    '<input id="p_note" placeholder="যেমন: মন্ডল বাড়ির কাজের জন্য"></label>',
+    '<div class="btnrow"><button class="btn sec" data-close>থাক</button>' +
+    '<button class="btn gold" id="pSave">খাতায় তুলুন</button></div>');
+
+  $('#pSave').addEventListener('click', async () => {
+    const amt = Number($('#p_amt').value) || 0;
+    if (amt <= 0){ toast('টাকার অঙ্ক লিখুন'); return; }
+    const t = $('#p_date').value || todayISO();
+    const note = $('#p_note').value.trim();
+    if (!c.pays) c.pays = [];
+    c.pays.push({ t, amt, note, by: (S.me && S.me.name) || '' });
+    addEvent(c, 'pay', money(amt) + (note ? ' — ' + note : ''));
+    if (!await saveRec(c)) return;
+    closeSheet();
+    toast('খাতায় উঠেছে — ' + money(amt));
+    render();
+    setTimeout(() => openDetail(c.id), 80);
+  });
+}
+
+/* ── কারিগরের হাতে যাওয়া হিসাব ── */
+function stmtText(c, opt){
+  const got = broughtBy(c.id).slice()
+    .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+  const L = [];
+  L.push('*জারা ইলেকট্রিক ও ইলেকট্রনিক্স*');
+  L.push('পুরাতন বাস স্ট্যান্ড, উল্লাপাড়া');
+  L.push('');
+  L.push(esc0(c.name || '') + ' ভাই, আপনার হিসাব — ' + banglaDate(todayISO()));
+  L.push('');
+  if (got.length){
+    L.push('আপনার পাঠানো লোক — ' + bn(got.length) + ' জন:');
+    got.forEach((x, i) => {
+      let line = bn(i + 1) + '. ' + banglaDate(x.createdAt || todayISO());
+      if (opt.names)   line += ' — ' + (x.name || 'নামহীন');
+      if (opt.amounts && salesTotal(x)) line += ' — ' + money(salesTotal(x));
+      L.push(line);
+    });
+  } else {
+    L.push('এখনো আপনার পাঠানো কেউ মাল নেয়নি।');
+  }
+  L.push('');
+  const pays = paysOf(c);
+  if (pays.length){
+    L.push('আপনাকে দেওয়া হয়েছে:');
+    pays.forEach(pp => L.push('• ' + banglaDate(pp.t) + ' — ' + money(pp.amt)));
+    L.push('*মোট: ' + money(paidTotal(c)) + '*');
+  } else {
+    L.push('এখনো টাকা পাঠানো হয়নি।');
+  }
+  L.push('');
+  L.push('নতুন কাজের খবর পেলেই জানাবেন। ধন্যবাদ।');
+  return L.join('\n');
+}
+
+function openStmt(c){
+  const wa = waOf(c) || waNumber(c.bkash);
+  openSheet('হিসাব পাঠান',
+    '<div class="checkline"><input type="checkbox" id="st_names">' +
+      '<span>কাস্টমারের নামও লিখব</span></div>' +
+    '<div class="checkline"><input type="checkbox" id="st_amt">' +
+      '<span>কার কাছে কত বিক্রি সেটাও লিখব</span></div>' +
+    '<div class="warnbox" style="margin:9px 0"><b>খেয়াল রাখুন</b>' +
+      'বিক্রির অঙ্ক আর আপনার দেওয়া টাকা — দুইটা একসাথে দেখালে সে হার বের করে ফেলতে পারে। ' +
+      'সাধারণত শুধু তারিখ আর আপনার পাঠানো টাকাটাই যথেষ্ট।</div>' +
+    '<label class="field"><span>যা পাঠানো হবে</span>' +
+    '<textarea id="st_txt" rows="12" class="num" style="font-size:13px"></textarea>' +
+    '<span class="hint">চাইলে এখানে লেখা বদলে নিতে পারেন।</span></label>',
+    '<div class="btnrow"><button class="btn sec" id="stCopy">কপি</button>' +
+    '<button class="btn gold" id="stSend"' + (wa ? '' : ' disabled') + '>WhatsApp-এ পাঠান</button></div>');
+
+  const ta = $('#st_txt');
+  const redraw = () => { ta.value = stmtText(c, { names: $('#st_names').checked, amounts: $('#st_amt').checked }); };
+  redraw();
+  $('#st_names').addEventListener('change', redraw);
+  $('#st_amt').addEventListener('change', redraw);
+
+  $('#stCopy').addEventListener('click', async () => {
+    try{ await navigator.clipboard.writeText(ta.value); toast('কপি হয়েছে'); }
+    catch(e){ ta.select(); toast('হাতে কপি করুন'); }
+  });
+  const sb = $('#stSend');
+  if (sb) sb.addEventListener('click', () => {
+    addEvent(c, 'stmt', 'হিসাব পাঠানো হয়েছে');
+    saveRec(c);
+    window.open('https://wa.me/' + wa + '?text=' + encodeURIComponent(ta.value), '_blank');
+    closeSheet();
+  });
+}
 
 async function paintDetailPhotos(c){
   const box = $('#detPhotos');
@@ -1976,6 +2244,11 @@ function openSettings(){
     '<input id="s_floor" type="number" inputmode="numeric" min="0" value="' + esc(s.perFloorValue || '') + '" placeholder="যেমন ২৫০০০"></label>' +
     '<div class="hint" style="margin-top:-8px;margin-bottom:14px">এটা আপনার নিজের অনুমান — আমি কোনো দাম বসাইনি। দিলে পাইপলাইনে কত টাকার কাজ আছে সেটা হিসাব করে দেখাব।</div>' +
 
+    '<label class="field"><span>কারিগরের ভাগের হার (%)</span>' +
+    '<input id="s_rate" type="number" inputmode="decimal" min="0" max="10" step="0.1" value="' + esc(s.shareRate || '') + '" placeholder="যেমন ১"></label>' +
+    '<div class="hint" style="margin-top:-8px;margin-bottom:14px">যে কারিগর লোক এনে দেয়, তার বিক্রির কত ভাগ জমা হবে। শুধু আপনার হিসাবের জন্য — ' +
+    'কারিগরকে পাঠানো কাগজে এই হার কোথাও লেখা থাকে না।</div>' +
+
     (standalone() ? '' :
       '<button type="button" class="btn pri block" id="s_install" style="margin-bottom:14px">' +
       '📲 ফোনে অ্যাপ হিসেবে বসান</button>') +
@@ -2037,6 +2310,7 @@ function openSettings(){
   $('#s_save').addEventListener('click', async () => {
     if (!cloud) S.settings.myName = $('#s_name').value.trim();
     S.settings.perFloorValue = Number($('#s_floor').value) || 0;
+    S.settings.shareRate = Number($('#s_rate').value) || 0;
     S.settings.roleTitle = $('#s_title').value;
     try{
       await Store.setSettings(S.settings);
@@ -2400,6 +2674,12 @@ function wireView(){
     S.period = el.dataset.p; render();
   }));
 
+  main.querySelectorAll('[data-fup]').forEach(el => el.addEventListener('click', () => {
+    S.fup = (S.fup === el.dataset.fup) ? 'all' : el.dataset.fup;
+    render();
+  }));
+  const fa = $('#fupAll'); if (fa) fa.addEventListener('click', () => { S.fup = 'all'; render(); });
+
   main.querySelectorAll('.rsel').forEach(el => el.addEventListener('change', () => {
     S.routeIds = Array.from(main.querySelectorAll('.rsel:checked')).map(x => x.value);
     const n = $('#selCount'); if (n) n.textContent = bn(S.routeIds.length) + ' জন বাছাই';
@@ -2604,7 +2884,10 @@ document.addEventListener('keydown', e => {
   }
 
   document.querySelectorAll('.tabbar button').forEach(b =>
-    b.addEventListener('click', () => { S.view = b.dataset.view; render(); }));
+    b.addEventListener('click', () => {
+      if (b.dataset.view !== 'follow') S.fup = 'all';
+      S.view = b.dataset.view; render();
+    }));
   $('#btnAdd').addEventListener('click', () => openForm(null));
 
   const form = $('#loginForm');
